@@ -1,0 +1,393 @@
+#include "Utils.h"
+#include "DebugStack.h"
+
+#include <sstream>
+
+namespace Duktype
+{
+    template<typename T>
+    v8::Local<T> Utils::createTypedArray(size_t byteLength, char * ptr)
+    {
+        v8::Local<v8::ArrayBuffer> buffer = v8::ArrayBuffer::New(v8::Isolate::GetCurrent(), byteLength);
+
+        auto contents = buffer->GetContents();
+        char* charBuf = static_cast<char *>(contents.Data());
+        memcpy(charBuf, ptr, byteLength);
+
+        size_t elements = byteLength / sizeof(typename V8TypedArrayTraits<T>::value_type);
+        v8::Local<T> result = T::New(buffer, 0, elements);
+        return result;
+    };
+
+    void Utils::resolveRelativeIndex(int &index, duk_context * ctx)
+    {
+        if (index < 0)
+        {
+            index += duk_get_top(ctx);
+        }
+    }
+
+    v8::Local<v8::Value> Utils::dukToV8(int index, duk_context * ctx)
+    {
+        resolveRelativeIndex(index, ctx);
+        DebugStack d("getStackValue", ctx);
+
+        int type = duk_get_type(ctx, index);
+        switch (type)
+        {
+            case DUK_TYPE_BOOLEAN:
+            {
+                bool result = duk_get_boolean(ctx, index);
+                return Nan::New<v8::Boolean>(result);
+            }
+            case DUK_TYPE_BUFFER:
+            {
+                std::cout << "Plain Buffer" << std::endl;
+                duk_size_t bufLen;
+                char * ptr = static_cast<char *>(duk_get_buffer(ctx, index, &bufLen));
+                Nan::MaybeLocal<v8::Object> buf = Nan::CopyBuffer(ptr, static_cast<uint32_t>(bufLen));
+                return buf.ToLocalChecked();
+            }
+            case DUK_TYPE_STRING:
+            {
+                duk_size_t size = 0;
+                const char * str = duk_get_lstring(ctx, index, &size);
+                return Nan::New<v8::String>(str, static_cast<int>(size)).ToLocalChecked();
+            }
+            case DUK_TYPE_NUMBER:
+            {
+                double num = duk_get_number(ctx, index);
+                return Nan::New<v8::Number>(num);
+            }
+            case DUK_TYPE_OBJECT:
+            {
+                if (duk_is_buffer_data(ctx, index))
+                {
+                    duk_size_t bufLen;
+                    char * ptr = static_cast<char *>(duk_get_buffer_data(ctx, index, &bufLen));
+                    if (instanceOf(index, "Uint8Array", ctx))
+                    {
+                        return createTypedArray<v8::Uint8Array>(bufLen, ptr);
+                    }
+                    else if (instanceOf(index, "DataView", ctx))
+                    {
+                        v8::Local<v8::ArrayBuffer> buffer = v8::ArrayBuffer::New(v8::Isolate::GetCurrent(), bufLen);
+                        v8::Local<v8::DataView> view = v8::DataView::New(buffer, 0, bufLen);
+                        auto contents = buffer->GetContents();
+                        char* charBuf = static_cast<char *>(contents.Data());
+                        memcpy(charBuf, ptr, bufLen);
+                        return view;
+                    }
+                    else if (instanceOf(index, "ArrayBuffer", ctx))
+                    {
+                        v8::Local<v8::ArrayBuffer> buffer = v8::ArrayBuffer::New(v8::Isolate::GetCurrent(), bufLen);
+                        auto contents = buffer->GetContents();
+                        char* charBuf = static_cast<char *>(contents.Data());
+                        memcpy(charBuf, ptr, bufLen);
+                        return buffer;
+                    }
+                    else if (instanceOf(index, "Uint8ClampedArray", ctx))
+                    {
+                        return createTypedArray<v8::Uint8ClampedArray>(bufLen, ptr);
+                    }
+                    else if (instanceOf(index, "Uint16Array", ctx))
+                    {
+                        return createTypedArray<v8::Uint16Array>(bufLen, ptr);
+                    }
+                    else if (instanceOf(index, "Uint32Array", ctx))
+                    {
+                        return createTypedArray<v8::Uint32Array>(bufLen, ptr);
+                    }
+                    if (instanceOf(index, "Int8Array", ctx))
+                    {
+                        return createTypedArray<v8::Int8Array>(bufLen, ptr);
+                    }
+                    else if (instanceOf(index, "Int16Array", ctx))
+                    {
+                        return createTypedArray<v8::Int16Array>(bufLen, ptr);
+                    }
+                    else if (instanceOf(index, "Int32Array", ctx))
+                    {
+                        return createTypedArray<v8::Int32Array>(bufLen, ptr);
+                    }
+                    else if (instanceOf(index, "Float32Array", ctx))
+                    {
+                        return createTypedArray<v8::Float32Array>(bufLen, ptr);
+                    }
+                    else if (instanceOf(index, "Float64Array", ctx))
+                    {
+                        return createTypedArray<v8::Float64Array>(bufLen, ptr);
+                    }
+                    else if (instanceOf(index, "Buffer", ctx))
+                    {
+                        Nan::MaybeLocal<v8::Object> buf = Nan::CopyBuffer(ptr, static_cast<uint32_t>(bufLen));
+                        return buf.ToLocalChecked();
+                    }
+                    else
+                    {
+                        std::cerr << "Unsupported Buffer Type" << std::endl;
+                    }
+                }
+                else if (duk_is_array(ctx, index))
+                {
+                    duk_enum(ctx, index, 0);
+                    std::vector<v8::Local<v8::Value>> items;
+                    while (duk_next(ctx, -1 /*enum_idx*/, 1 /*get_value*/))
+                    {
+                        items.push_back(dukToV8(-1, ctx));
+                        duk_pop_2(ctx);/* pop_key */
+                    }
+                    duk_pop(ctx);
+                    v8::Local<v8::Array> a = Nan::New<v8::Array>(static_cast<unsigned int>(items.size()));
+                    for (size_t idx = 0; idx < items.size(); idx++)
+                    {
+                        Nan::Set(a, static_cast<uint32_t>(idx), items[idx]);
+                    }
+                    return a;
+                }
+                else if (duk_is_object(ctx, index))
+                {
+                    if (instanceOf(index, "Date", ctx))
+                    {
+                        duk_push_string(ctx, "getTime");
+                        duk_call_prop(ctx, index, 0);
+                        double num = duk_get_number(ctx, -1);
+                        duk_pop(ctx);
+                        auto date = Nan::New<v8::Date>(num);
+                        return date.ToLocalChecked();
+                    }
+
+                    duk_enum(ctx, index, 0);
+                    auto objTemplate = Nan::New<v8::Object>();
+                    while (duk_next(ctx, -1 /*enum_idx*/, 1 /*get_value*/))
+                    {
+                        duk_size_t size = 0;
+                        const char * str = duk_get_lstring(ctx, -2, &size);
+                        objTemplate->Set(Nan::New<v8::String>(str, static_cast<int>(size)).ToLocalChecked(),
+                                         dukToV8(-1, ctx));
+                        duk_pop_2(ctx);
+                    }
+                    duk_pop(ctx);
+                    return objTemplate;
+                }
+                else
+                {
+                    std::cerr << "Unsupported type" << std::endl;
+                }
+                break;
+            }
+            case DUK_TYPE_UNDEFINED:
+            {
+                return Nan::Undefined();
+            }
+            case DUK_TYPE_NULL:
+            {
+                return Nan::Null();
+            }
+            default:
+                assert(false);
+        }
+        return Nan::Undefined();
+    }
+
+    bool Utils::v8ToDuk(const Nan::Persistent<v8::Value>& persistedVal, duk_context * ctx)
+    {
+        auto isolate = v8::Isolate::GetCurrent();
+        auto val = persistedVal.Get(isolate);
+        if (val->IsBoolean())
+        {
+            bool value = val->ToBoolean()->Value();
+            duk_push_boolean(ctx, value);
+            return true;
+        }
+        if (val->IsNumber())
+        {
+            double value = val->ToNumber(isolate)->Value();
+            duk_push_number(ctx, value);
+            return true;
+        }
+        else if (val->IsString())
+        {
+            std::string dukString = *v8::String::Utf8Value(val);
+            duk_push_string(ctx, dukString.c_str());
+            return true;
+        }
+        else if (val->IsUndefined())
+        {
+            duk_push_undefined(ctx);
+            return true;
+        }
+        else if (val->IsNull())
+        {
+            duk_push_null(ctx);
+            return true;
+        }
+        else if (val->IsObject())
+        {
+            v8::Local<v8::Object> obj = val->ToObject();
+
+            std::string constructorName = *v8::String::Utf8Value(obj->GetConstructorName());
+            if (constructorName == "Array")
+            {
+                v8::Local<v8::Array> array = v8::Local<v8::Array>::Cast(val);
+                uint32_t length = array->Length();
+
+                int arrayIdx = duk_push_array(ctx);
+                for (uint32_t i = 0; i < length; i++)
+                {
+                    v8::Local<v8::Value> item = Nan::Get(array, i).ToLocalChecked();
+                    if (v8ToDuk(item, ctx))
+                    {
+                        duk_put_prop_index(ctx, arrayIdx, i);
+                    }
+                }
+                return true;
+            }
+            else if (constructorName == "Buffer" && val->IsUint8Array())
+            {
+                size_t length = node::Buffer::Length(val->ToObject());
+                char* buffer = static_cast<char*>(node::Buffer::Data(val->ToObject()));
+                char* ptr = static_cast<char *>(duk_push_buffer(ctx, length,false));
+                std::memcpy(ptr, buffer, length);
+                duk_push_buffer_object(ctx, -1, 0, length, DUK_BUFOBJ_NODEJS_BUFFER);
+                duk_replace(ctx, -2);
+                return true;
+            }
+            else if (val->IsTypedArray())
+            {
+                int flags = DUK_BUFOBJ_UINT8ARRAY;
+                if (val->IsUint8ClampedArray())
+                {
+                    flags = DUK_BUFOBJ_UINT8CLAMPEDARRAY;
+                }
+                else if (val->IsUint16Array())
+                {
+                    flags = DUK_BUFOBJ_UINT16ARRAY;
+                }
+                else if (val->IsUint32Array())
+                {
+                    flags = DUK_BUFOBJ_UINT32ARRAY;
+                }
+                else if (val->IsInt8Array())
+                {
+                    flags = DUK_BUFOBJ_INT8ARRAY;
+                }
+                else if (val->IsInt16Array())
+                {
+                    flags = DUK_BUFOBJ_INT16ARRAY;
+                }
+                else if (val->IsInt32Array())
+                {
+                    flags = DUK_BUFOBJ_INT32ARRAY;
+                }
+                else if (val->IsFloat32Array())
+                {
+                    flags = DUK_BUFOBJ_FLOAT32ARRAY;
+                }
+                else if (val->IsFloat64Array())
+                {
+                    flags = DUK_BUFOBJ_FLOAT64ARRAY;
+                }
+                else if (val->IsUint8Array())
+                {
+                    flags = DUK_BUFOBJ_UINT8ARRAY;
+                }
+                else
+                {
+                    std::cerr << "Unknown TypedArray" << std::endl;
+                    return false;
+                }
+                v8::Local<v8::TypedArray> array = v8::Local<v8::TypedArray>::Cast(val);
+                auto buf = array->Buffer();
+                auto contents = buf->GetContents();
+                size_t length = contents.ByteLength();
+                char* buffer = static_cast<char *>(contents.Data());
+
+
+                char* ptr = static_cast<char *>(duk_push_fixed_buffer(ctx, length));
+                std::memcpy(ptr, buffer, length);
+
+                duk_push_buffer_object(ctx, -1, 0, length, flags);
+                duk_replace(ctx, -2);
+                return true;
+            }
+            else if (val->IsArrayBuffer())
+            {
+                v8::Local<v8::ArrayBuffer> buf = v8::Local<v8::ArrayBuffer>::Cast(val);
+                auto contents = buf->GetContents();
+                size_t length = contents.ByteLength();
+                char* buffer = static_cast<char *>(contents.Data());
+                char* ptr = static_cast<char *>(duk_push_fixed_buffer(ctx, length));
+                std::memcpy(ptr, buffer, length);
+                duk_push_buffer_object(ctx, -1, 0, length, DUK_BUFOBJ_ARRAYBUFFER);
+                duk_replace(ctx, -2);
+                return true;
+            }
+            else if (val->IsDataView())
+            {
+                v8::Local<v8::DataView> view = v8::Local<v8::DataView>::Cast(val);
+                v8::Local<v8::ArrayBuffer> buf = view->Buffer();
+                auto contents = buf->GetContents();
+                size_t length = contents.ByteLength();
+                char* buffer = static_cast<char *>(contents.Data());
+                char* ptr = static_cast<char *>(duk_push_fixed_buffer(ctx, length));
+                std::memcpy(ptr, buffer, length);
+                duk_push_buffer_object(ctx, -1, 0, length, DUK_BUFOBJ_DATAVIEW);
+                duk_replace(ctx, -2);
+                return true;
+            }
+            else if (constructorName == "Date" && val->IsDate())
+            {
+                v8::Local<v8::Date> date = v8::Local<v8::Date>::Cast(val);
+                double dt = date->NumberValue();
+                auto t = static_cast<std::int64_t>(dt);
+                std::stringstream s;
+                s << t;
+                std::string str = s.str();
+
+                // There has to be a better way than this..
+                duk_eval_string(ctx,std::string("new Date(" + str + ")").c_str());
+                return true;
+            }
+            else
+            {
+                if (constructorName != "Object")
+                {
+                    std::cout << "Unsupported object type: " << constructorName << std::endl;
+                }
+                auto props = Nan::GetPropertyNames(obj).ToLocalChecked();
+                int objIdx = duk_push_object(ctx);
+                for(uint32_t i = 0; i < props->Length(); i++)
+                {
+                    v8::Local<v8::String> localKey = props->Get(i)->ToString();
+
+                    std::string key = *v8::String::Utf8Value(localKey);
+
+                    if (Nan::HasOwnProperty(obj, localKey).FromJust())
+                    {
+                        auto maybeLocalVal = Nan::Get(obj, localKey);
+                        auto localVal = maybeLocalVal.ToLocalChecked();
+                        v8ToDuk(localVal, ctx);
+                        duk_put_prop_string(ctx, objIdx, key.c_str());
+                    }
+                }
+            }
+        }
+        else
+        {
+            std::cout << "Unknown type!" << std::endl;
+            // Unknown type
+            assert(false);
+        }
+        return false;
+    }
+
+    bool Utils::instanceOf(int index, const std::string &type, duk_context * ctx)
+    {
+        resolveRelativeIndex(index, ctx);
+        duk_get_global_string(ctx, type.c_str());
+        bool result = duk_instanceof(ctx, index, -1);
+        duk_pop(ctx);
+        return result;
+    }
+}

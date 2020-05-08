@@ -1,0 +1,9 @@
+.idea/workspace.xml
+.idea/usage.statistics.xml
+.idea/tasks.xml
+.travis.yml
+/node_modules
+/dist
+/cmake-build-debug
+/cmake-build-release
+build/
