@@ -13,7 +13,7 @@ Duktype (Duktape + Typescript) aims to be a complete node.js binding for the Duk
 
 This allows you to run user scripts in a completely isolated environment.
 
-This is a native C++ module - it *should* compile on any platform.
+This is a native C++ module, with no dependencies - it *should* compile on any platform.
 
 ## Security
 

@@ -7,7 +7,7 @@
 
 namespace Duktype
 {
-    typedef std::function<Nan::Persistent<v8::Value>(Nan::Callback *, const std::vector<Nan::CopyablePersistentTraits<v8::Value>::CopyablePersistent>& args)> ExecContext;
+    typedef std::function<v8::Local<v8::Value>(Nan::Callback *, std::vector<v8::Local<v8::Value>> args)> ExecContext;
 
     class ExecutionContext
     {

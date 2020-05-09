@@ -1,10 +1,12 @@
 #include "scope.h"
 
+#include <memory>
+
 Nan::Persistent<v8::Function> Scope::constructor;
 
 Scope::Scope()
 {
-    _scope = std::make_unique<Duktype::Scope>();
+    _scope = std::unique_ptr<Duktype::Scope>(new Duktype::Scope());
 }
 
 void Scope::Init(v8::Local<v8::Object> exports)

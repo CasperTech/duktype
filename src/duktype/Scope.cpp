@@ -50,22 +50,22 @@ namespace Duktype
                 return 0;
             }
             Nan::Callback * cb = (*it).second;
-            std::vector<Nan::CopyablePersistentTraits<v8::Value>::CopyablePersistent> params;
+            std::vector<v8::Local<v8::Value>> params;
 
             duk_idx_t i, nargs;
             nargs = duk_get_top(ctx);
             for (i = 0; i < nargs; i++)
             {
                 v8::Local<v8::Value> prim = Utils::dukToV8(i, ctx);
-                Nan::Persistent<v8::Value> pers = Nan::Persistent<v8::Value>(prim);
+                //Nan::Persistent<v8::Value> pers = Nan::Persistent<v8::Value>(prim);
 
-                params.emplace_back(pers);
+                params.emplace_back(prim);
             }
 
             auto exec = ExecutionContext::getContext();
             try
             {
-                Nan::Persistent<v8::Value> ret = exec(cb, params);
+                v8::Local<v8::Value> ret = exec(cb, params);
                 Utils::v8ToDuk(ret, ctx);
             }
             catch(const std::runtime_error& e)
@@ -90,7 +90,7 @@ namespace Duktype
 
         if (info.Length() > 0 && info[0]->IsString())
         {
-            std::string objNameStr = *v8::String::Utf8Value(info[0]);
+            std::string objNameStr = *Nan::Utf8String(info[0]);
             duk_push_object(_ctx);
             duk_put_prop_string(_ctx, -2, objNameStr.c_str());
             std::vector<std::string> stack = _stack;
@@ -118,7 +118,7 @@ namespace Duktype
 
         int objIndex = duk_get_top(_ctx) - 1;
 
-        std::string funcNameStr = *v8::String::Utf8Value(info[0]);
+        std::string funcNameStr = *Nan::Utf8String(info[0]);
         duk_push_string(_ctx, funcNameStr.c_str());
 
         int args = 0;
@@ -160,7 +160,7 @@ namespace Duktype
         }
 
         int objIndex = duk_get_top(_ctx) - 1;
-        std::string propNameStr = *v8::String::Utf8Value(info[0]);
+        std::string propNameStr = *Nan::Utf8String(info[0]);
         duk_push_string(_ctx, propNameStr.c_str());
         try
         {
@@ -187,7 +187,7 @@ namespace Duktype
         }
 
         int objIndex = duk_get_top(_ctx) - 1;
-        std::string propNameStr = *v8::String::Utf8Value(info[0]);
+        std::string propNameStr = *Nan::Utf8String(info[0]);;
         duk_push_string(_ctx, propNameStr.c_str());
         try
         {
@@ -211,7 +211,7 @@ namespace Duktype
         ContextStack c(_ctx, _stack);
         DebugStack d("setProperty", _ctx);
 
-        std::string propNameStr = *v8::String::Utf8Value(info[0]);
+        std::string propNameStr = *Nan::Utf8String(info[0]);;
 
         if (info[1]->IsFunction())
         {

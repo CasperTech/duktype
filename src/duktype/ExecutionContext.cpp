@@ -6,13 +6,15 @@ namespace Duktype
 
     ExecutionContext::ExecutionContext(const Nan::FunctionCallbackInfo<v8::Value> &info)
     {
-        _contexts.push([&](Nan::Callback * cb, const std::vector<Nan::CopyablePersistentTraits<v8::Value>::CopyablePersistent>& params) {
+        _contexts.push([&](Nan::Callback * cb, std::vector<v8::Local<v8::Value>> args) {
             Nan::HandleScope scope;
+            /*
             std::vector<v8::Local<v8::Value>> args;
             for (const auto& arg: params)
             {
                 args.emplace_back(Nan::New(arg));
             }
+             */
             Nan::AsyncResource resource("duktype:callback");
             Nan::TryCatch tryCatch;
 
@@ -20,7 +22,7 @@ namespace Duktype
             if (tryCatch.HasCaught())
             {
                 v8::Local<v8::Message> msg = tryCatch.Message();
-                std::string errStr = *v8::String::Utf8Value(msg->Get());
+                std::string errStr = *Nan::Utf8String(msg->Get());
                 throw std::runtime_error(errStr);
             }
             return ret.ToLocalChecked();

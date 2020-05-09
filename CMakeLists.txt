@@ -1,11 +1,12 @@
-cmake_minimum_required(VERSION 3.7)
+cmake_minimum_required(VERSION 3.12.0)
+set(CMAKE_CXX_STANDARD 17)
 
 project(duktype)
-set(CMAKE_CXX_STANDARD 17)
 include(NodeJS.cmake)
 nodejs_init()
 
 add_library(duktape duktape/src/duktape.c duktape/src/duktape.h duktape/src/duk_config.h)
+set_property(TARGET duktape PROPERTY POSITION_INDEPENDENT_CODE ON)
 target_include_directories(duktape INTERFACE SYSTEM duktape/src)
 
 add_nodejs_module(${PROJECT_NAME}

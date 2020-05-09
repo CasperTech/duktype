@@ -36,7 +36,7 @@ namespace Duktype
 
         if(info.Length() > 0 && info[0]->IsString())
         {
-            std::string cppStr = *v8::String::Utf8Value(info[0]);
+            std::string cppStr = *Nan::Utf8String(info[0]);;
             try
             {
                 if (duk_peval_string(_ctx, cppStr.c_str()) != 0)

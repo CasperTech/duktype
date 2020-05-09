@@ -6,7 +6,7 @@
 namespace Duktype
 {
     template<typename T>
-    v8::Local<T> Utils::createTypedArray(size_t byteLength, char * ptr)
+    v8::Local<T> Utils::createTypedArray(size_t byteLength, char * ptr, int entrySize)
     {
         v8::Local<v8::ArrayBuffer> buffer = v8::ArrayBuffer::New(v8::Isolate::GetCurrent(), byteLength);
 
@@ -14,7 +14,7 @@ namespace Duktype
         char* charBuf = static_cast<char *>(contents.Data());
         memcpy(charBuf, ptr, byteLength);
 
-        size_t elements = byteLength / sizeof(typename V8TypedArrayTraits<T>::value_type);
+        size_t elements = byteLength / entrySize;
         v8::Local<T> result = T::New(buffer, 0, elements);
         return result;
     };
@@ -67,7 +67,7 @@ namespace Duktype
                     char * ptr = static_cast<char *>(duk_get_buffer_data(ctx, index, &bufLen));
                     if (instanceOf(index, "Uint8Array", ctx))
                     {
-                        return createTypedArray<v8::Uint8Array>(bufLen, ptr);
+                        return createTypedArray<v8::Uint8Array>(bufLen, ptr, 1);
                     }
                     else if (instanceOf(index, "DataView", ctx))
                     {
@@ -88,35 +88,35 @@ namespace Duktype
                     }
                     else if (instanceOf(index, "Uint8ClampedArray", ctx))
                     {
-                        return createTypedArray<v8::Uint8ClampedArray>(bufLen, ptr);
+                        return createTypedArray<v8::Uint8ClampedArray>(bufLen, ptr, 1);
                     }
                     else if (instanceOf(index, "Uint16Array", ctx))
                     {
-                        return createTypedArray<v8::Uint16Array>(bufLen, ptr);
+                        return createTypedArray<v8::Uint16Array>(bufLen, ptr, 2);
                     }
                     else if (instanceOf(index, "Uint32Array", ctx))
                     {
-                        return createTypedArray<v8::Uint32Array>(bufLen, ptr);
+                        return createTypedArray<v8::Uint32Array>(bufLen, ptr, 4);
                     }
                     if (instanceOf(index, "Int8Array", ctx))
                     {
-                        return createTypedArray<v8::Int8Array>(bufLen, ptr);
+                        return createTypedArray<v8::Int8Array>(bufLen, ptr, 1);
                     }
                     else if (instanceOf(index, "Int16Array", ctx))
                     {
-                        return createTypedArray<v8::Int16Array>(bufLen, ptr);
+                        return createTypedArray<v8::Int16Array>(bufLen, ptr, 2);
                     }
                     else if (instanceOf(index, "Int32Array", ctx))
                     {
-                        return createTypedArray<v8::Int32Array>(bufLen, ptr);
+                        return createTypedArray<v8::Int32Array>(bufLen, ptr, 4);
                     }
                     else if (instanceOf(index, "Float32Array", ctx))
                     {
-                        return createTypedArray<v8::Float32Array>(bufLen, ptr);
+                        return createTypedArray<v8::Float32Array>(bufLen, ptr, 4);
                     }
                     else if (instanceOf(index, "Float64Array", ctx))
                     {
-                        return createTypedArray<v8::Float64Array>(bufLen, ptr);
+                        return createTypedArray<v8::Float64Array>(bufLen, ptr, 8);
                     }
                     else if (instanceOf(index, "Buffer", ctx))
                     {
@@ -196,7 +196,7 @@ namespace Duktype
         auto val = persistedVal.Get(isolate);
         if (val->IsBoolean())
         {
-            bool value = val->ToBoolean()->Value();
+            bool value = val->ToBoolean(isolate)->Value();
             duk_push_boolean(ctx, value);
             return true;
         }
@@ -208,7 +208,7 @@ namespace Duktype
         }
         else if (val->IsString())
         {
-            std::string dukString = *v8::String::Utf8Value(val);
+            std::string dukString = *Nan::Utf8String(val);
             duk_push_string(ctx, dukString.c_str());
             return true;
         }
@@ -224,9 +224,9 @@ namespace Duktype
         }
         else if (val->IsObject())
         {
-            v8::Local<v8::Object> obj = val->ToObject();
+            v8::Local<v8::Object> obj = val->ToObject(isolate);
 
-            std::string constructorName = *v8::String::Utf8Value(obj->GetConstructorName());
+            std::string constructorName = *Nan::Utf8String(obj->GetConstructorName());
             if (constructorName == "Array")
             {
                 v8::Local<v8::Array> array = v8::Local<v8::Array>::Cast(val);
@@ -245,8 +245,8 @@ namespace Duktype
             }
             else if (constructorName == "Buffer" && val->IsUint8Array())
             {
-                size_t length = node::Buffer::Length(val->ToObject());
-                char* buffer = static_cast<char*>(node::Buffer::Data(val->ToObject()));
+                size_t length = node::Buffer::Length(val->ToObject(isolate));
+                char* buffer = static_cast<char*>(node::Buffer::Data(val->ToObject(isolate)));
                 char* ptr = static_cast<char *>(duk_push_buffer(ctx, length,false));
                 std::memcpy(ptr, buffer, length);
                 duk_push_buffer_object(ctx, -1, 0, length, DUK_BUFOBJ_NODEJS_BUFFER);
@@ -339,7 +339,7 @@ namespace Duktype
             else if (constructorName == "Date" && val->IsDate())
             {
                 v8::Local<v8::Date> date = v8::Local<v8::Date>::Cast(val);
-                double dt = date->NumberValue();
+                double dt = (date->NumberValue(isolate->GetCurrentContext())).ToChecked();
                 auto t = static_cast<std::int64_t>(dt);
                 std::stringstream s;
                 s << t;
@@ -359,9 +359,9 @@ namespace Duktype
                 int objIdx = duk_push_object(ctx);
                 for(uint32_t i = 0; i < props->Length(); i++)
                 {
-                    v8::Local<v8::String> localKey = props->Get(i)->ToString();
+                    v8::Local<v8::String> localKey = props->Get(i)->ToString(v8::Isolate::GetCurrent());
 
-                    std::string key = *v8::String::Utf8Value(localKey);
+                    std::string key = *Nan::Utf8String(localKey);
 
                     if (Nan::HasOwnProperty(obj, localKey).FromJust())
                     {
