@@ -1,5 +1,7 @@
 #include "context.h"
 #include "scope.h"
+#include "callback.h"
+#include "duktype/Callback.h"
 #include <iostream>
 
 Nan::Persistent<v8::Function> Context::constructor;
@@ -66,10 +68,8 @@ void Context::GetGlobalObject(const Nan::FunctionCallbackInfo<v8::Value> &info)
 {
     Nan::EscapableHandleScope scope;
 
-    v8::Local<v8::Function> cons = Nan::New<v8::Function>(Scope::constructor);
-    v8::Local<v8::Context> context = info.GetIsolate()->GetCurrentContext();
-    auto ins1 = cons->NewInstance(context);
-    auto instance = ins1.ToLocalChecked();
+    v8::Local<v8::Function> cons = Nan::New<v8::Function>(::Scope::constructor);
+    v8::Local<v8::Object> instance = Nan::NewInstance(cons).ToLocalChecked();
     auto* scp = Nan::ObjectWrap::Unwrap<Scope>(instance);
     auto* ctxWrapper = ObjectWrap::Unwrap<Context>(info.Holder());
     scp->setContext(ctxWrapper->getCtx());

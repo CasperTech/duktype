@@ -1,4 +1,4 @@
-// http://stackoverflow.com/questions/71074/how-to-remove-firefoxs-dotted-outline-on-buttons-as-well-as-links/3844452#3844452
+/* http://stackoverflow.com/questions/71074/how-to-remove-firefoxs-dotted-outline-on-buttons-as-well-as-links/3844452#3844452 */
 :focus {
 	outline: none;
 }

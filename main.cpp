@@ -22,6 +22,7 @@
 
 #include "src/context.h"
 #include "src/scope.h"
+#include "src/callback.h"
 
 using v8::FunctionTemplate;
 
@@ -29,6 +30,7 @@ void InitAll(v8::Local<v8::Object> exports)
 {
     Context::Init(exports);
     Scope::Init(exports);
+    DukCallback::Init(exports);
 }
 
 NODE_MODULE(duktape, InitAll)

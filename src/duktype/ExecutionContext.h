@@ -1,22 +1,19 @@
 #pragma once
 
-#include "../Nan.h"
+#include "Context.h"
 
-#include <stack>
-#include <functional>
+#include <memory>
 
 namespace Duktype
 {
-    typedef std::function<v8::Local<v8::Value>(Nan::Callback *, std::vector<v8::Local<v8::Value>> args)> ExecContext;
-
     class ExecutionContext
     {
-        public:
-            explicit ExecutionContext(const Nan::FunctionCallbackInfo<v8::Value> &info);
-            ~ExecutionContext();
-            static ExecContext getContext();
+    public:
+        ExecutionContext(const std::shared_ptr<Context>& ctx, const Nan::FunctionCallbackInfo<v8::Value> &info);
+        ~ExecutionContext();
 
-        private:
-            static std::stack<ExecContext> _contexts;
+    private:
+        std::shared_ptr<Context> _ctx;
     };
 }
+

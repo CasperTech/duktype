@@ -2,44 +2,14 @@
 
 namespace Duktype
 {
-    std::stack<ExecContext> ExecutionContext::_contexts;
-
-    ExecutionContext::ExecutionContext(const Nan::FunctionCallbackInfo<v8::Value> &info)
+    ExecutionContext::ExecutionContext(const std::shared_ptr<Context>& ctx, const Nan::FunctionCallbackInfo<v8::Value> &info)
+        : _ctx(ctx)
     {
-        _contexts.push([&](Nan::Callback * cb, std::vector<v8::Local<v8::Value>> args) {
-            Nan::HandleScope scope;
-            /*
-            std::vector<v8::Local<v8::Value>> args;
-            for (const auto& arg: params)
-            {
-                args.emplace_back(Nan::New(arg));
-            }
-             */
-            Nan::AsyncResource resource("duktype:callback");
-            Nan::TryCatch tryCatch;
-
-            v8::MaybeLocal<v8::Value> ret = cb->Call(static_cast<int>(args.size()), &args[0], &resource);
-            if (tryCatch.HasCaught())
-            {
-                v8::Local<v8::Message> msg = tryCatch.Message();
-                std::string errStr = *Nan::Utf8String(msg->Get());
-                throw std::runtime_error(errStr);
-            }
-            return ret.ToLocalChecked();
-        });
+        _ctx->pushExecutionContext(info);
     }
 
     ExecutionContext::~ExecutionContext()
     {
-        _contexts.pop();
-    }
-
-    ExecContext ExecutionContext::getContext()
-    {
-        if (_contexts.empty())
-        {
-            throw std::runtime_error("No available execution context");
-        }
-        return _contexts.top();
+        _ctx->popExecutionContext();
     }
 }

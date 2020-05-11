@@ -17,6 +17,7 @@ namespace Duktype
             void deleteProperty(const Nan::FunctionCallbackInfo<v8::Value>& info);
             void callMethod(const Nan::FunctionCallbackInfo<v8::Value>& info);
             void setStack(const std::vector<std::string>& stack);
+            v8::Local<v8::Value> test();
             std::vector<std::string> createObject(const Nan::FunctionCallbackInfo<v8::Value>& info);
 
         private:
@@ -25,6 +26,7 @@ namespace Duktype
             std::map<std::string, Nan::Callback *> _callbacks;
 
             duk_context* _ctx = nullptr;
+            std::shared_ptr<Context> _ctxObj;
             std::vector<std::string> _stack;
     };
 }

@@ -5,6 +5,8 @@ declare namespace duktype
         constructor();
         getGlobalObject(): Scope;
         eval(script: string): any;
+        enablePromises(): void;
+        enableTimers(): void;
     }
 
     export class Scope
@@ -14,6 +16,11 @@ declare namespace duktype
         deleteProperty(name: string): void;
         callMethod(name: string, ...args: any[]): any;
         createObject(name: string): Scope;
+    }
+
+    export class DukCallback
+    {
+        call(...args: any[]): any;
     }
 }
 

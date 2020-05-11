@@ -8,6 +8,7 @@ namespace Duktype
 {
     void Scope::setContext(const std::shared_ptr<Duktype::Context> &ctx)
     {
+        _ctxObj = ctx;
         _ctx = ctx->getContext();
     }
 
@@ -21,11 +22,11 @@ namespace Duktype
         DebugStack d("handleFunctionCall", ctx, 1); // Expect return value to be pushed
         duk_push_current_function(ctx);
         duk_get_prop_string(ctx, -1, "scope");
-        void *ptr = duk_get_pointer(ctx, -1);
+        void* ptr = duk_get_pointer(ctx, -1);
         duk_pop_2(ctx);
         if (ptr != nullptr)
         {
-            return static_cast<Scope *>(ptr)->functionCall(ctx);
+            return static_cast<Scope*>(ptr)->functionCall(ctx);
         }
         else
         {
@@ -49,35 +50,42 @@ namespace Duktype
             {
                 return 0;
             }
-            Nan::Callback * cb = (*it).second;
+            Nan::Callback* cb = (*it).second;
             std::vector<v8::Local<v8::Value>> params;
-
+            const Nan::FunctionCallbackInfo<v8::Value> &info = _ctxObj->getCurrentExecutionContext();
             duk_idx_t i, nargs;
             nargs = duk_get_top(ctx);
-            for (i = 0; i < nargs; i++)
-            {
-                v8::Local<v8::Value> prim = Utils::dukToV8(i, ctx);
-                //Nan::Persistent<v8::Value> pers = Nan::Persistent<v8::Value>(prim);
-
-                params.emplace_back(prim);
-            }
-
-            auto exec = ExecutionContext::getContext();
+            Nan::EscapableHandleScope scope;
             try
             {
-                v8::Local<v8::Value> ret = exec(cb, params);
+                for (i = 0; i < nargs; i++)
+                {
+                    v8::Local<v8::Value> prim = Utils::dukToV8(i, _ctxObj);
+                    params.emplace_back(prim);
+                }
+
+                Nan::AsyncResource resource("duktype:callback");
+                Nan::TryCatch tryCatch;
+                v8::MaybeLocal<v8::Value> retMaybe = cb->Call(static_cast<int>(params.size()), &params[0], &resource);
+                if (tryCatch.HasCaught())
+                {
+                    v8::Local<v8::Message> msg = tryCatch.Message();
+                    std::string errStr = *Nan::Utf8String(msg->Get());
+                    throw std::runtime_error(errStr);
+                }
+                v8::Local<v8::Value> ret = retMaybe.ToLocalChecked();
                 Utils::v8ToDuk(ret, ctx);
             }
-            catch(const std::runtime_error& e)
+            catch (const std::runtime_error& e)
             {
                 duk_push_error_object(ctx, DUK_ERR_ERROR, "%s", e.what());
                 return duk_throw(ctx);
             }
             return 1;
         }
-        catch(...)
+        catch (const std::exception& e)
         {
-            duk_push_error_object(ctx, DUK_ERR_ERROR, "%s", "Caught exception");
+            duk_push_error_object(ctx, DUK_ERR_ERROR, "%s", e.what());
             return duk_throw(ctx);
         }
 
@@ -107,14 +115,14 @@ namespace Duktype
 
     void Scope::callMethod(const Nan::FunctionCallbackInfo<v8::Value> &info)
     {
-        if(info.Length() < 1 || !info[0]->IsString())
+        if (info.Length() < 1 || !info[0]->IsString())
         {
             Nan::ThrowError("Invalid or wrong number of arguments");
             return;
         }
         ContextStack c(_ctx, _stack);
         DebugStack d("callMethod", _ctx);
-        ExecutionContext e(info);
+        ExecutionContext e(_ctxObj, info);
 
         int objIndex = duk_get_top(_ctx) - 1;
 
@@ -122,7 +130,7 @@ namespace Duktype
         duk_push_string(_ctx, funcNameStr.c_str());
 
         int args = 0;
-        for(int argNum = 1; argNum < info.Length(); argNum++)
+        for (int argNum = 1; argNum < info.Length(); argNum++)
         {
             if (Utils::v8ToDuk(info[argNum], _ctx))
             {
@@ -134,15 +142,15 @@ namespace Duktype
             if (duk_pcall_prop(_ctx, objIndex, args) != DUK_EXEC_SUCCESS)
             {
                 duk_size_t sLength;
-                const char * err = duk_safe_to_lstring(_ctx, -1, &sLength);
+                const char* err = duk_safe_to_lstring(_ctx, -1, &sLength);
                 duk_pop(_ctx);
                 return Nan::ThrowError(Nan::New<v8::String>(err, static_cast<int>(sLength)).ToLocalChecked());
             }
-            auto value = Utils::dukToV8(-1, _ctx);
+            auto value = Utils::dukToV8(-1, _ctxObj);
             duk_pop(_ctx);
             info.GetReturnValue().Set(value);
         }
-        catch(const std::runtime_error& e)
+        catch (const std::runtime_error &e)
         {
             std::string what = std::string(e.what());
             return Nan::ThrowError(Nan::New<v8::String>(what.c_str(), static_cast<int>(what.size())).ToLocalChecked());
@@ -153,7 +161,7 @@ namespace Duktype
     {
         ContextStack c(_ctx, _stack);
         DebugStack d("deleteProperty", _ctx);
-        if(info.Length() < 1 || !info[0]->IsString())
+        if (info.Length() < 1 || !info[0]->IsString())
         {
             Nan::ThrowError("Invalid or wrong number of arguments");
             return;
@@ -165,11 +173,11 @@ namespace Duktype
         try
         {
             duk_get_prop(_ctx, objIndex);
-            auto value = Utils::dukToV8(-1, _ctx);
+            auto value = Utils::dukToV8(-1, _ctxObj);
             duk_pop(_ctx);
             info.GetReturnValue().Set(value);
         }
-        catch(const std::runtime_error& e)
+        catch (const std::runtime_error &e)
         {
             std::string what = std::string(e.what());
             return Nan::ThrowError(Nan::New<v8::String>(what.c_str(), static_cast<int>(what.size())).ToLocalChecked());
@@ -180,20 +188,20 @@ namespace Duktype
     {
         ContextStack c(_ctx, _stack);
         DebugStack d("deleteProperty", _ctx);
-        if(info.Length() < 1 || !info[0]->IsString())
+        if (info.Length() < 1 || !info[0]->IsString())
         {
             Nan::ThrowError("Invalid or wrong number of arguments");
             return;
         }
 
         int objIndex = duk_get_top(_ctx) - 1;
-        std::string propNameStr = *Nan::Utf8String(info[0]);;
+        std::string propNameStr = *Nan::Utf8String(info[0]);
         duk_push_string(_ctx, propNameStr.c_str());
         try
         {
             duk_del_prop(_ctx, objIndex);
         }
-        catch(const std::runtime_error& e)
+        catch (const std::runtime_error &e)
         {
             std::string what = std::string(e.what());
             return Nan::ThrowError(Nan::New<v8::String>(what.c_str(), static_cast<int>(what.size())).ToLocalChecked());
@@ -202,7 +210,7 @@ namespace Duktype
 
     void Scope::setProperty(const Nan::FunctionCallbackInfo<v8::Value> &info)
     {
-        if(info.Length() < 2 || !info[0]->IsString())
+        if (info.Length() < 2 || !info[0]->IsString())
         {
             Nan::ThrowError("Invalid or wrong number of arguments");
             return;
@@ -211,7 +219,7 @@ namespace Duktype
         ContextStack c(_ctx, _stack);
         DebugStack d("setProperty", _ctx);
 
-        std::string propNameStr = *Nan::Utf8String(info[0]);;
+        std::string propNameStr = *Nan::Utf8String(info[0]);
 
         if (info[1]->IsFunction())
         {
@@ -224,7 +232,7 @@ namespace Duktype
                 duk_put_prop_string(_ctx, -2, "__callbackName");
 
                 // Scope pointer
-                duk_push_pointer(_ctx, (void *)this);
+                duk_push_pointer(_ctx, static_cast<void*>(this));
                 duk_put_prop_string(_ctx, -2, "scope");
 
                 // Give the function a name
@@ -234,7 +242,7 @@ namespace Duktype
             }
             catch (...)
             {
-                Nan::ThrowError("Error occured while adding the function");
+                Nan::ThrowError("Error occurred while adding the function");
             }
             return;
         }

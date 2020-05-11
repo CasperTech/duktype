@@ -26,5 +26,12 @@ add_nodejs_module(${PROJECT_NAME}
         src/duktype/Utils.h
         src/duktype/ExecutionContext.h
         src/duktype/ExecutionContext.cpp
+        src/callback.h
+        src/callback.cpp
+        src/duktype/Callback.h
+        src/duktype/Callback.cpp
+        src/sole/sole.hpp
 )
+
 target_link_libraries(${PROJECT_NAME} duktape)
+target_include_directories(${PROJECT_NAME} PRIVATE src)

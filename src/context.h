@@ -2,7 +2,7 @@
 
 #include "duktype/Context.h"
 
-#include "Nan.h"
+#include "initnan.h"
 
 #include <memory>
 

@@ -11,7 +11,7 @@ class DebugStack
             : _ctx(c)
             , _label(label)
         {
-            //std::cout << label << std::endl;
+            // std::cout << "<" << label << ">" << std::endl;
             if (_pile.find(label) == _pile.end())
             {
                 _pile[label] = 0;
@@ -22,6 +22,7 @@ class DebugStack
         }
         ~DebugStack()
         {
+            // std::cout << "</" << _label << ">" << std::endl;
             int end = duk_get_top(_ctx);
             if (_start != end)
             {

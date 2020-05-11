@@ -1,25 +1,30 @@
 #include "Utils.h"
 #include "DebugStack.h"
+#include "Context.h"
+#include <callback.h>
+
+#include <sole/sole.hpp>
+#include <scope.h>
 
 #include <sstream>
 
 namespace Duktype
 {
     template<typename T>
-    v8::Local<T> Utils::createTypedArray(size_t byteLength, char * ptr, int entrySize)
+    v8::Local<T> Utils::createTypedArray(size_t byteLength, char* ptr, int entrySize)
     {
         v8::Local<v8::ArrayBuffer> buffer = v8::ArrayBuffer::New(v8::Isolate::GetCurrent(), byteLength);
 
         auto contents = buffer->GetContents();
-        char* charBuf = static_cast<char *>(contents.Data());
+        char* charBuf = static_cast<char*>(contents.Data());
         memcpy(charBuf, ptr, byteLength);
 
         size_t elements = byteLength / entrySize;
         v8::Local<T> result = T::New(buffer, 0, elements);
         return result;
-    };
+    }
 
-    void Utils::resolveRelativeIndex(int &index, duk_context * ctx)
+    void Utils::resolveRelativeIndex(int &index, duk_context* ctx)
     {
         if (index < 0)
         {
@@ -27,11 +32,11 @@ namespace Duktype
         }
     }
 
-    v8::Local<v8::Value> Utils::dukToV8(int index, duk_context * ctx)
+    v8::Local<v8::Value> Utils::dukToV8(int index, std::shared_ptr<Duktype::Context>& ctxObj)
     {
+        duk_context* ctx = ctxObj->getContext();
         resolveRelativeIndex(index, ctx);
-        DebugStack d("getStackValue", ctx);
-
+        DebugStack d("dukToV8", ctx);
         int type = duk_get_type(ctx, index);
         switch (type)
         {
@@ -44,14 +49,14 @@ namespace Duktype
             {
                 std::cout << "Plain Buffer" << std::endl;
                 duk_size_t bufLen;
-                char * ptr = static_cast<char *>(duk_get_buffer(ctx, index, &bufLen));
+                char* ptr = static_cast<char*>(duk_get_buffer(ctx, index, &bufLen));
                 Nan::MaybeLocal<v8::Object> buf = Nan::CopyBuffer(ptr, static_cast<uint32_t>(bufLen));
                 return buf.ToLocalChecked();
             }
             case DUK_TYPE_STRING:
             {
                 duk_size_t size = 0;
-                const char * str = duk_get_lstring(ctx, index, &size);
+                const char* str = duk_get_lstring(ctx, index, &size);
                 return Nan::New<v8::String>(str, static_cast<int>(size)).ToLocalChecked();
             }
             case DUK_TYPE_NUMBER:
@@ -64,7 +69,7 @@ namespace Duktype
                 if (duk_is_buffer_data(ctx, index))
                 {
                     duk_size_t bufLen;
-                    char * ptr = static_cast<char *>(duk_get_buffer_data(ctx, index, &bufLen));
+                    char* ptr = static_cast<char*>(duk_get_buffer_data(ctx, index, &bufLen));
                     if (instanceOf(index, "Uint8Array", ctx))
                     {
                         return createTypedArray<v8::Uint8Array>(bufLen, ptr, 1);
@@ -74,7 +79,7 @@ namespace Duktype
                         v8::Local<v8::ArrayBuffer> buffer = v8::ArrayBuffer::New(v8::Isolate::GetCurrent(), bufLen);
                         v8::Local<v8::DataView> view = v8::DataView::New(buffer, 0, bufLen);
                         auto contents = buffer->GetContents();
-                        char* charBuf = static_cast<char *>(contents.Data());
+                        char* charBuf = static_cast<char*>(contents.Data());
                         memcpy(charBuf, ptr, bufLen);
                         return view;
                     }
@@ -82,7 +87,7 @@ namespace Duktype
                     {
                         v8::Local<v8::ArrayBuffer> buffer = v8::ArrayBuffer::New(v8::Isolate::GetCurrent(), bufLen);
                         auto contents = buffer->GetContents();
-                        char* charBuf = static_cast<char *>(contents.Data());
+                        char* charBuf = static_cast<char*>(contents.Data());
                         memcpy(charBuf, ptr, bufLen);
                         return buffer;
                     }
@@ -134,8 +139,8 @@ namespace Duktype
                     std::vector<v8::Local<v8::Value>> items;
                     while (duk_next(ctx, -1 /*enum_idx*/, 1 /*get_value*/))
                     {
-                        items.push_back(dukToV8(-1, ctx));
-                        duk_pop_2(ctx);/* pop_key */
+                        items.emplace_back(dukToV8(-1, ctxObj));
+                        duk_pop_2(ctx);
                     }
                     duk_pop(ctx);
                     v8::Local<v8::Array> a = Nan::New<v8::Array>(static_cast<unsigned int>(items.size()));
@@ -156,19 +161,53 @@ namespace Duktype
                         auto date = Nan::New<v8::Date>(num);
                         return date.ToLocalChecked();
                     }
-
-                    duk_enum(ctx, index, 0);
-                    auto objTemplate = Nan::New<v8::Object>();
-                    while (duk_next(ctx, -1 /*enum_idx*/, 1 /*get_value*/))
+                    else if (duk_is_function(ctx, index))
                     {
-                        duk_size_t size = 0;
-                        const char * str = duk_get_lstring(ctx, -2, &size);
-                        objTemplate->Set(Nan::New<v8::String>(str, static_cast<int>(size)).ToLocalChecked(),
-                                         dukToV8(-1, ctx));
-                        duk_pop_2(ctx);
+                        // Possibly a callback, let's prepare for that possibility..
+
+                        std::string callbackHandle = "_cb:" + sole::uuid4().str();
+                        duk_push_global_stash(ctx);
+                        duk_dup(ctx, index);
+                        duk_put_prop_string(ctx, -2, callbackHandle.c_str());
+                        duk_pop(ctx);
+
+
+                        v8::Local<v8::Function> cons = Nan::New<v8::Function>(::DukCallback::constructor);
+                        v8::Local<v8::Object> obj = Nan::NewInstance(cons).ToLocalChecked();
+
+                        // Copy object properties
+                        duk_enum(ctx, index, 0);
+                        while (duk_next(ctx, -1 /*enum_idx*/, 1 /*get_value*/))
+                        {
+                            duk_size_t size = 0;
+                            const char* str = duk_get_lstring(ctx, -2, &size);
+                            obj->Set(Nan::New<v8::String>(str, static_cast<int>(size)).ToLocalChecked(), dukToV8(-1, ctxObj));
+                            duk_pop_2(ctx);
+                        }
+                        duk_pop(ctx);
+
+                        auto* cb = Nan::ObjectWrap::Unwrap<::DukCallback>(obj);
+                        Duktype::Callback* unwrapped = cb->getCallback();
+                        unwrapped->setHandle(callbackHandle);
+                        unwrapped->setContextObj(ctxObj);
+                        return obj;
                     }
-                    duk_pop(ctx);
-                    return objTemplate;
+                    else
+                    {
+                        // Plain object - not a function
+
+                        duk_enum(ctx, index, 0);
+                        auto objTemplate = Nan::New<v8::Object>();
+                        while (duk_next(ctx, -1 /*enum_idx*/, 1 /*get_value*/))
+                        {
+                            duk_size_t size = 0;
+                            const char* str = duk_get_lstring(ctx, -2, &size);
+                            objTemplate->Set(Nan::New<v8::String>(str, static_cast<int>(size)).ToLocalChecked(), dukToV8(-1, ctxObj));
+                            duk_pop_2(ctx);
+                        }
+                        duk_pop(ctx);
+                        return objTemplate;
+                    }
                 }
                 else
                 {
@@ -190,10 +229,9 @@ namespace Duktype
         return Nan::Undefined();
     }
 
-    bool Utils::v8ToDuk(const Nan::Persistent<v8::Value>& persistedVal, duk_context * ctx)
+    bool Utils::v8ToDuk(const v8::Local<v8::Value> &val, duk_context* ctx)
     {
         auto isolate = v8::Isolate::GetCurrent();
-        auto val = persistedVal.Get(isolate);
         if (val->IsBoolean())
         {
             bool value = val->ToBoolean(isolate)->Value();
@@ -247,7 +285,7 @@ namespace Duktype
             {
                 size_t length = node::Buffer::Length(val->ToObject(isolate));
                 char* buffer = static_cast<char*>(node::Buffer::Data(val->ToObject(isolate)));
-                char* ptr = static_cast<char *>(duk_push_buffer(ctx, length,false));
+                char* ptr = static_cast<char*>(duk_push_buffer(ctx, length, false));
                 std::memcpy(ptr, buffer, length);
                 duk_push_buffer_object(ctx, -1, 0, length, DUK_BUFOBJ_NODEJS_BUFFER);
                 duk_replace(ctx, -2);
@@ -301,10 +339,10 @@ namespace Duktype
                 auto buf = array->Buffer();
                 auto contents = buf->GetContents();
                 size_t length = contents.ByteLength();
-                char* buffer = static_cast<char *>(contents.Data());
+                char* buffer = static_cast<char*>(contents.Data());
 
 
-                char* ptr = static_cast<char *>(duk_push_fixed_buffer(ctx, length));
+                char* ptr = static_cast<char*>(duk_push_fixed_buffer(ctx, length));
                 std::memcpy(ptr, buffer, length);
 
                 duk_push_buffer_object(ctx, -1, 0, length, flags);
@@ -316,8 +354,8 @@ namespace Duktype
                 v8::Local<v8::ArrayBuffer> buf = v8::Local<v8::ArrayBuffer>::Cast(val);
                 auto contents = buf->GetContents();
                 size_t length = contents.ByteLength();
-                char* buffer = static_cast<char *>(contents.Data());
-                char* ptr = static_cast<char *>(duk_push_fixed_buffer(ctx, length));
+                char* buffer = static_cast<char*>(contents.Data());
+                char* ptr = static_cast<char*>(duk_push_fixed_buffer(ctx, length));
                 std::memcpy(ptr, buffer, length);
                 duk_push_buffer_object(ctx, -1, 0, length, DUK_BUFOBJ_ARRAYBUFFER);
                 duk_replace(ctx, -2);
@@ -329,8 +367,8 @@ namespace Duktype
                 v8::Local<v8::ArrayBuffer> buf = view->Buffer();
                 auto contents = buf->GetContents();
                 size_t length = contents.ByteLength();
-                char* buffer = static_cast<char *>(contents.Data());
-                char* ptr = static_cast<char *>(duk_push_fixed_buffer(ctx, length));
+                char* buffer = static_cast<char*>(contents.Data());
+                char* ptr = static_cast<char*>(duk_push_fixed_buffer(ctx, length));
                 std::memcpy(ptr, buffer, length);
                 duk_push_buffer_object(ctx, -1, 0, length, DUK_BUFOBJ_DATAVIEW);
                 duk_replace(ctx, -2);
@@ -346,7 +384,7 @@ namespace Duktype
                 std::string str = s.str();
 
                 // There has to be a better way than this..
-                duk_eval_string(ctx,std::string("new Date(" + str + ")").c_str());
+                duk_eval_string(ctx, std::string("new Date(" + str + ")").c_str());
                 return true;
             }
             else
@@ -357,7 +395,7 @@ namespace Duktype
                 }
                 auto props = Nan::GetPropertyNames(obj).ToLocalChecked();
                 int objIdx = duk_push_object(ctx);
-                for(uint32_t i = 0; i < props->Length(); i++)
+                for (uint32_t i = 0; i < props->Length(); i++)
                 {
                     v8::Local<v8::String> localKey = props->Get(i)->ToString(v8::Isolate::GetCurrent());
 
@@ -382,7 +420,7 @@ namespace Duktype
         return false;
     }
 
-    bool Utils::instanceOf(int index, const std::string &type, duk_context * ctx)
+    bool Utils::instanceOf(int index, const std::string &type, duk_context* ctx)
     {
         resolveRelativeIndex(index, ctx);
         duk_get_global_string(ctx, type.c_str());

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../Nan.h"
+#include <initnan.h>
 #include <vector>
 
 struct CallbackData

@@ -6,6 +6,7 @@
       <option name="FUNCTION_EXPRESSION_BRACE_STYLE" value="2" />
     </JSCodeStyleSettings>
     <TypeScriptCodeStyleSettings version="0">
+      <option name="USE_PUBLIC_MODIFIER" value="true" />
       <option name="USE_DOUBLE_QUOTES" value="false" />
       <option name="FORCE_QUOTE_STYlE" value="true" />
       <option name="SPACES_WITHIN_IMPORTS" value="true" />
