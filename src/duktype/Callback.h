@@ -1,9 +1,7 @@
 #pragma once
 
-#include <duktape.h>
 #include <initnan.h>
-
-#include <string>
+#include <mutex>
 
 namespace Duktype
 {
@@ -11,16 +9,14 @@ namespace Duktype
     class Callback
     {
         public:
+            Callback();
             ~Callback();
-
-            void call(const Nan::FunctionCallbackInfo <v8::Value> &info);
-
-            void setHandle(const std::string &cbHandle);
-
-            void setContextObj(std::shared_ptr<Duktype::Context>& ptr);
+            void call(const Nan::FunctionCallbackInfo<v8::Value> &info);
+            void setHandle(const std::string& handle);
+            void setContext(const std::shared_ptr<Context>& context);
 
         private:
-            std::string _cbHandle;
-            std::shared_ptr<Duktype::Context> _ctx;
+            std::string _handle;
+            std::shared_ptr<Context> _context;
     };
 }

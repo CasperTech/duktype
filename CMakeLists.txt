@@ -1,7 +1,8 @@
 cmake_minimum_required(VERSION 3.12.0)
+project(duktype)
+
 set(CMAKE_CXX_STANDARD 17)
 
-project(duktype)
 include(NodeJS.cmake)
 nodejs_init()
 
@@ -13,24 +14,56 @@ add_nodejs_module(${PROJECT_NAME}
         main.cpp
         src/context.cpp
         src/context.h
-        src/duktype/Context.h
-        src/duktype/Context.cpp
-        src/duktype/Scope.cpp
-        src/duktype/Scope.h
-        src/scope.cpp
-        src/scope.h
-        src/duktype/CallbackData.h
-        src/duktype/DebugStack.h
-        src/duktype/ContextStack.h
-        src/duktype/Utils.cpp
-        src/duktype/Utils.h
-        src/duktype/ExecutionContext.h
-        src/duktype/ExecutionContext.cpp
+        src/asynccontext.cpp
+        src/asynccontext.h
+        src/objectscope.cpp
+        src/objectscope.h
+        src/asyncobjectscope.cpp
+        src/asyncobjectscope.h
         src/callback.h
         src/callback.cpp
-        src/duktype/Callback.h
-        src/duktype/Callback.cpp
+        src/asynccallback.h
+        src/asynccallback.cpp
         src/sole/sole.hpp
+
+        src/duktape/DuktapeContext.h
+        src/duktape/DuktapeContext.cpp
+        src/duktape/DukValue.h
+        src/duktape/DukValue.cpp
+        src/duktape/DukEnum.h
+        src/duktape/DukEnum.cpp
+        src/duktape/DukObject.cpp
+        src/duktape/DukObject.h
+        src/duktape/DukGlobalStash.cpp
+        src/duktape/DukGlobalStash.h
+        src/duktape/DukGlobalObject.cpp
+        src/duktape/DukGlobalObject.h
+        src/duktape/DukContextStack.cpp
+        src/duktape/DukContextStack.h
+
+        src/duktype/ObjectHandle.h
+        src/duktype/ObjectHandle.cpp
+        src/duktype/Callback.cpp
+        src/duktype/Callback.h
+        src/duktype/AsyncCallback.cpp
+        src/duktype/AsyncCallback.h
+        src/duktype/Context.cpp
+        src/duktype/Context.h
+        src/duktype/AsyncContext.cpp
+        src/duktype/AsyncContext.h
+        src/duktype/ObjectScope.cpp
+        src/duktype/ObjectScope.h
+        src/duktype/AsyncObjectScope.cpp
+        src/duktype/AsyncObjectScope.h
+        src/duktype/AsyncJob.h
+        src/duktype/AsyncJob.cpp
+        src/duktype/Promise.h
+        src/duktype/Promise.cpp
+        src/duktype/PromiseData.cpp
+        src/duktype/AsyncJobScheduler.h
+        src/duktype/AsyncJobScheduler.cpp
+        src/duktype/AsyncNodeScheduler.h
+        src/duktype/AsyncNodeScheduler.cpp
 )
 
 target_link_libraries(${PROJECT_NAME} duktape)

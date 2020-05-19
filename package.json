@@ -1,13 +1,17 @@
 {
   "name": "@caspertech/duktype",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "description": "Duktape in Typescript",
   "main": "index.js",
   "scripts": {
     "configure": "ncmake configure",
-    "build": "ncmake build",
+    "build": "ncmake build && npm run build-ts",
     "build-ts": "tsc",
-    "install": "ncmake configure && ncmake build"
+    "test-only": "node --expose-gc -r source-map-support/register dist/runTests.js",
+    "test": "ncmake build && npm run build-ts && npm run test-only",
+    "prepack": "npm run configure && npm run build && npm run test",
+    "install": "ncmake configure && ncmake build",
+    "run": "npm run build && npm run test && node -r source-map-support dist/example.js"
   },
   "author": "CasperTech Ltd",
   "license": "MIT",
@@ -18,10 +22,16 @@
   "dependencies": {
     "bindings": "^1.5.0",
     "nan": "^2.14.1",
-    "node-cmake": "^2.5.1"
+    "node-cmake": "^2.5.1",
+    "uuid": "^8.0.0"
   },
   "devDependencies": {
+    "@types/mocha": "^7.0.2",
     "@types/node": "^13.13.5",
-    "typescript": "^3.8.3"
+    "@types/uuid": "^7.0.3",
+    "mocha": "^7.1.2",
+    "source-map-support": "^0.5.19",
+    "typescript": "^3.8.3",
+    "why-is-node-running": "^2.1.2"
   }
 }

@@ -1,25 +1,25 @@
 #pragma once
 
-#include "duktype/Context.h"
-#include "duktype/Scope.h"
+#include "duktype/AsyncContext.h"
+#include "duktype/AsyncObjectScope.h"
 
 #include "initnan.h"
 
-class Scope: public Nan::ObjectWrap
+class AsyncObjectScope: public Nan::ObjectWrap
 {
     public:
         static void Init(v8::Local<v8::Object> exports);
 
         static Nan::Persistent<v8::Function> constructor;
 
-        void setContext(const std::shared_ptr<Duktype::Context> &);
+        void setContext(const std::shared_ptr<Duktype::AsyncContext> &);
 
-        const std::shared_ptr<Duktype::Context> &getContext();
+        const std::shared_ptr<Duktype::AsyncContext> &getContext();
 
-        Duktype::Scope* getScope();
+        Duktype::AsyncObjectScope* getObjectScope();
 
     private:
-        explicit Scope();
+        explicit AsyncObjectScope();
 
         static void New(const Nan::FunctionCallbackInfo<v8::Value> &info);
 
@@ -33,7 +33,7 @@ class Scope: public Nan::ObjectWrap
 
         static void CreateObject(const Nan::FunctionCallbackInfo<v8::Value> &info);
 
-        std::shared_ptr<Duktype::Context> _ctx;
-        std::unique_ptr<Duktype::Scope> _scope;
+        std::shared_ptr<Duktype::AsyncContext> _ctx;
+        std::unique_ptr<Duktype::AsyncObjectScope> _scope;
 };
 

@@ -1,22 +1,24 @@
-#include "scope.h"
+#include "objectscope.h"
+#include <initnan.h>
 
 #include <memory>
+#include <vector>
 
-Nan::Persistent<v8::Function> Scope::constructor;
+Nan::Persistent<v8::Function> ObjectScope::constructor;
 
-Scope::Scope()
+ObjectScope::ObjectScope()
 {
-    _scope = std::unique_ptr<Duktype::Scope>(new Duktype::Scope());
+    _scope = std::unique_ptr<Duktype::ObjectScope>(new Duktype::ObjectScope());
 }
 
-void Scope::Init(v8::Local<v8::Object> exports)
+void ObjectScope::Init(v8::Local<v8::Object> exports)
 {
     v8::Local<v8::Context> context = exports->CreationContext();
     Nan::HandleScope scope;
 
     // Prepare constructor template
     v8::Local<v8::FunctionTemplate> tpl = Nan::New<v8::FunctionTemplate>(New);
-    tpl->SetClassName(Nan::New("Scope").ToLocalChecked());
+    tpl->SetClassName(Nan::New("ObjectScope").ToLocalChecked());
     tpl->InstanceTemplate()->SetInternalFieldCount(1);
 
     Nan::SetPrototypeMethod(tpl, "setProperty", SetProperty);
@@ -26,30 +28,30 @@ void Scope::Init(v8::Local<v8::Object> exports)
     Nan::SetPrototypeMethod(tpl, "createObject", CreateObject);
 
     constructor.Reset(tpl->GetFunction(context).ToLocalChecked());
-    exports->Set(context, Nan::New("Scope").ToLocalChecked(), tpl->GetFunction(context).ToLocalChecked());
+    exports->Set(context, Nan::New("ObjectScope").ToLocalChecked(), tpl->GetFunction(context).ToLocalChecked());
 }
 
-Duktype::Scope * Scope::getScope()
+Duktype::ObjectScope * ObjectScope::getObjectScope()
 {
     return _scope.get();
 }
 
-void Scope::CreateObject(const Nan::FunctionCallbackInfo<v8::Value> &info)
+void ObjectScope::CreateObject(const Nan::FunctionCallbackInfo<v8::Value> &info)
 {
     try
     {
-        auto * scopeWrapper = ObjectWrap::Unwrap<Scope>(info.Holder());
-        std::vector<std::string> stack = scopeWrapper->getScope()->createObject(info);
+        auto * scopeWrapper = ObjectWrap::Unwrap<ObjectScope>(info.Holder());
+        std::string handle = scopeWrapper->getObjectScope()->createObject(info);
 
         Nan::EscapableHandleScope scope;
 
-        v8::Local<v8::Function> cons = Nan::New<v8::Function>(::Scope::constructor);
+        v8::Local<v8::Function> cons = Nan::New<v8::Function>(::ObjectScope::constructor);
         v8::Local<v8::Context> context = info.GetIsolate()->GetCurrentContext();
         auto ins1 = cons->NewInstance(context);
         auto instance = ins1.ToLocalChecked();
-        auto * scp = Nan::ObjectWrap::Unwrap<Scope>(instance);
+        auto * scp = Nan::ObjectWrap::Unwrap<ObjectScope>(instance);
         scp->setContext(scopeWrapper->getContext());
-        scp->getScope()->setStack(stack);
+        scp->getObjectScope()->setHandle(handle);
         info.GetReturnValue().Set(instance);
     }
     catch(const std::runtime_error& err)
@@ -58,17 +60,17 @@ void Scope::CreateObject(const Nan::FunctionCallbackInfo<v8::Value> &info)
     }
 }
 
-const std::shared_ptr<Duktype::Context>& Scope::getContext()
+const std::shared_ptr<Duktype::Context>& ObjectScope::getContext()
 {
     return _ctx;
 }
 
-void Scope::GetProperty(const Nan::FunctionCallbackInfo<v8::Value> &info)
+void ObjectScope::GetProperty(const Nan::FunctionCallbackInfo<v8::Value> &info)
 {
     try
     {
-        auto * scopeWrapper = ObjectWrap::Unwrap<Scope>(info.Holder());
-        scopeWrapper->getScope()->getProperty(info);
+        auto * scopeWrapper = ObjectWrap::Unwrap<ObjectScope>(info.Holder());
+        scopeWrapper->getObjectScope()->getProperty(info);
     }
     catch(const std::runtime_error& err)
     {
@@ -76,12 +78,12 @@ void Scope::GetProperty(const Nan::FunctionCallbackInfo<v8::Value> &info)
     }
 }
 
-void Scope::SetProperty(const Nan::FunctionCallbackInfo<v8::Value> &info)
+void ObjectScope::SetProperty(const Nan::FunctionCallbackInfo<v8::Value> &info)
 {
     try
     {
-        auto * scopeWrapper = ObjectWrap::Unwrap<Scope>(info.Holder());
-        scopeWrapper->getScope()->setProperty(info);
+        auto * scopeWrapper = ObjectWrap::Unwrap<ObjectScope>(info.Holder());
+        scopeWrapper->getObjectScope()->setProperty(info);
     }
     catch(const std::runtime_error& err)
     {
@@ -89,12 +91,12 @@ void Scope::SetProperty(const Nan::FunctionCallbackInfo<v8::Value> &info)
     }
 }
 
-void Scope::DeleteProperty(const Nan::FunctionCallbackInfo<v8::Value> &info)
+void ObjectScope::DeleteProperty(const Nan::FunctionCallbackInfo<v8::Value> &info)
 {
     try
     {
-        auto * scopeWrapper = ObjectWrap::Unwrap<Scope>(info.Holder());
-        scopeWrapper->getScope()->deleteProperty(info);
+        auto * scopeWrapper = ObjectWrap::Unwrap<ObjectScope>(info.Holder());
+        scopeWrapper->getObjectScope()->deleteProperty(info);
     }
     catch(const std::runtime_error& err)
     {
@@ -102,12 +104,12 @@ void Scope::DeleteProperty(const Nan::FunctionCallbackInfo<v8::Value> &info)
     }
 }
 
-void Scope::CallMethod(const Nan::FunctionCallbackInfo<v8::Value> &info)
+void ObjectScope::CallMethod(const Nan::FunctionCallbackInfo<v8::Value> &info)
 {
     try
     {
-        auto * scopeWrapper = ObjectWrap::Unwrap<Scope>(info.Holder());
-        scopeWrapper->getScope()->callMethod(info);
+        auto * scopeWrapper = ObjectWrap::Unwrap<ObjectScope>(info.Holder());
+        scopeWrapper->getObjectScope()->callMethod(info);
     }
     catch(const std::runtime_error& err)
     {
@@ -115,18 +117,18 @@ void Scope::CallMethod(const Nan::FunctionCallbackInfo<v8::Value> &info)
     }
 }
 
-void Scope::setContext(const std::shared_ptr<Duktype::Context>& ctx)
+void ObjectScope::setContext(const std::shared_ptr<Duktype::Context>& ctx)
 {
     _ctx = ctx;
     _scope->setContext(ctx);
 }
 
-void Scope::New(const Nan::FunctionCallbackInfo<v8::Value> &info)
+void ObjectScope::New(const Nan::FunctionCallbackInfo<v8::Value> &info)
 {
     v8::Local<v8::Context> context = info.GetIsolate()->GetCurrentContext();
     if (info.IsConstructCall())
     {
-        auto* obj = new Scope();
+        auto* obj = new ObjectScope();
         obj->Wrap(info.This());
         info.GetReturnValue().Set(info.This());
     }

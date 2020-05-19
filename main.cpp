@@ -21,16 +21,22 @@
 // ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "src/context.h"
-#include "src/scope.h"
+#include "src/asynccontext.h"
+#include "src/objectscope.h"
+#include "src/asyncobjectscope.h"
 #include "src/callback.h"
+#include "src/asynccallback.h"
 
 using v8::FunctionTemplate;
 
 void InitAll(v8::Local<v8::Object> exports)
 {
     Context::Init(exports);
-    Scope::Init(exports);
+    AsyncContext::Init(exports);
+    ObjectScope::Init(exports);
+    AsyncObjectScope::Init(exports);
     DukCallback::Init(exports);
+    DukAsyncCallback::Init(exports);
 }
 
 NODE_MODULE(duktape, InitAll)
