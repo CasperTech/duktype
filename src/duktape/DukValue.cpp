@@ -44,13 +44,13 @@ namespace Duktape
         auto isolate = v8::Isolate::GetCurrent();
         if (val->IsBoolean())
         {
-            bool value = val->ToBoolean(isolate)->Value();
+            bool value = Nan::To<bool>(val).ToChecked();
             DukValue::newBoolean(ctxObj, value);
             return;
         }
         else if (val->IsNumber())
         {
-            double value = val->ToNumber(isolate)->Value();
+            double value = Nan::To<double>(val).ToChecked();
             DukValue::newNumber(ctxObj, value);
             return;
         }
@@ -72,7 +72,7 @@ namespace Duktape
         }
         else if (val->IsObject())
         {
-            v8::Local<v8::Object> obj = val->ToObject(isolate);
+            v8::Local<v8::Object> obj = Nan::To<v8::Object>(val).ToLocalChecked();
 
             std::string constructorName = *Nan::Utf8String(obj->GetConstructorName());
             if (constructorName == "Array")
@@ -94,8 +94,8 @@ namespace Duktape
             }
             else if (constructorName == "Buffer" && val->IsUint8Array())
             {
-                size_t length = node::Buffer::Length(val->ToObject(isolate));
-                char* buffer = static_cast<char*>(node::Buffer::Data(val->ToObject(isolate)));
+                size_t length = node::Buffer::Length(obj);
+                char* buffer = static_cast<char*>(node::Buffer::Data(obj));
                 DukValue::newBuffer(ctxObj, buffer, length, false);
                 DukValue buf(ctxObj);
                 buf.convertBufferToBufferObject(length, DUK_BUFOBJ_NODEJS_BUFFER);
@@ -268,7 +268,7 @@ namespace Duktape
                 DukValue dukObj(ctxObj);
                 for (uint32_t i = 0; i < props->Length(); i++)
                 {
-                    v8::Local<v8::String> localKey = props->Get(i)->ToString(v8::Isolate::GetCurrent());
+                    v8::Local<v8::String> localKey = Nan::To<v8::String>(Nan::Get(props, i).ToLocalChecked()).ToLocalChecked();
 
                     std::string key = *Nan::Utf8String(localKey);
 
@@ -577,7 +577,7 @@ namespace Duktape
                         while (e.next(true, [&](DukValue& key, DukValue& value)
                         {
                             std::string str = key.getString();
-                            obj->Set(Nan::New<v8::String>(str.c_str(), static_cast<int>(str.length())).ToLocalChecked(), value.toV8(context));
+                            Nan::Set(obj, Nan::New<v8::String>(str.c_str(), static_cast<int>(str.length())).ToLocalChecked(), value.toV8(context));
                         }));
 
                         auto* cb = Nan::ObjectWrap::Unwrap<::DukCallback>(obj);
@@ -596,7 +596,7 @@ namespace Duktape
                         while (e.next(true, [&](DukValue& key, DukValue& value)
                         {
                             std::string str = key.getString();
-                            objTemplate->Set(Nan::New<v8::String>(str.c_str(), static_cast<int>(str.length())).ToLocalChecked(), value.toV8(context));
+                            Nan::Set(objTemplate, Nan::New<v8::String>(str.c_str(), static_cast<int>(str.length())).ToLocalChecked(), value.toV8(context));
                         }));
                         return objTemplate;
                     }
