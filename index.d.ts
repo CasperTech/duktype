@@ -1,5 +1,12 @@
+import { TypescriptCompiler as compiler } from './ts-src/TypescriptCompiler';
+
 declare namespace duktype
 {
+    export class TypescriptCompiler extends compiler
+    {
+
+    }
+
     export class Context
     {
         constructor();

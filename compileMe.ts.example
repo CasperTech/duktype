@@ -1,0 +1,32 @@
+// This is an example of some typescript code
+// including promises/async/await which can be
+// compiled down to ES5 to work with duktape.
+
+function testWait(ms: number): Promise<void>
+{
+    return new Promise<void>((resolve, reject) => {
+        setTimeout(() =>
+        {
+            resolve();
+        }, ms);
+    });
+}
+
+async function run()
+{
+    await testWait(100);
+}
+
+function err()
+{
+    return new Promise<void>((resolve, reject) => {
+        setTimeout(() =>
+        {
+            reject(new Error('Successful failure');
+        });
+    })
+}
+
+run().then(() => {
+    return err();
+});

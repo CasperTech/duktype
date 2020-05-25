@@ -9,6 +9,6 @@
     "strictPropertyInitialization" : false
   },
   "include": [
-    "example/**/*.ts"
+    "ts-src/**/*.ts"
   ]
 }
