@@ -20,7 +20,7 @@ namespace Duktype
             ~ObjectHandle();
 
         private:
-            std::string _handle;
+            std::string _handle = "GLOBAL";
             int _pops = 0;
     };
 }

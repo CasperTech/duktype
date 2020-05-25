@@ -8,7 +8,7 @@ namespace Duktype
             : Duktape::DukObject(ctx)
             , _handle(handle)
     {
-        if (handle.empty())
+        if (handle.empty() || handle == "GLOBAL")
         {
             duk_push_global_object(ctx->getContext());
         }
@@ -23,7 +23,7 @@ namespace Duktype
 
     ObjectHandle::~ObjectHandle()
     {
-        if (_handle.empty())
+        if (_handle.empty() || _handle == "GLOBAL")
         {
             duk_pop(_ctx->getContext());
         }

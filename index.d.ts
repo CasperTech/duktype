@@ -14,6 +14,7 @@ declare namespace duktype
         eval(script: string): any;
         enablePromises(): void;
         enableTimers(): void;
+        cleanRefs(): void;
         disableTimers(): void;
         runGC(): void;
         getObjectReferenceCount(): number;
@@ -31,11 +32,12 @@ declare namespace duktype
     export class AsyncContext
     {
         constructor();
-        getGlobalObject(): AsyncObjectScope;
+        getGlobalObject(): Promise<AsyncObjectScope>;
         eval(script: string): Promise<any>;
         enablePromises(): Promise<void>;
-        enableTimers(): void;
-        disableTimers(): void;
+        cleanRefs(): void;
+        enableTimers(): Promise<void>;
+        disableTimers(): Promise<void>;
         runGC(): Promise<void>;
         getObjectReferenceCount(): number;
     }

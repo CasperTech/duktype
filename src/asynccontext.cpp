@@ -30,6 +30,7 @@ void AsyncContext::Init(v8::Local<v8::Object> exports)
     tpl->InstanceTemplate()->SetInternalFieldCount(1);
     Nan::SetPrototypeMethod(tpl, "eval", Eval);
     Nan::SetPrototypeMethod(tpl, "getGlobalObject", GetGlobalObject);
+    Nan::SetPrototypeMethod(tpl, "cleanRefs", CleanRefs);
     Nan::SetPrototypeMethod(tpl, "getObjectReferenceCount", GetObjectReferenceCount);
     Nan::SetPrototypeMethod(tpl, "runGC", RunGC);
 
@@ -95,15 +96,29 @@ void AsyncContext::New(const Nan::FunctionCallbackInfo<v8::Value> &info)
     }
 }
 
+void AsyncContext:: CleanRefs(const Nan::FunctionCallbackInfo<v8::Value>& info)
+{
+    try
+    {
+        auto * contextWrapper = ObjectWrap::Unwrap<AsyncContext>(info.Holder());
+        contextWrapper->getCtx()->cleanRefs(info);
+    }
+    catch(const std::exception& err)
+    {
+        Nan::ThrowError(err.what());
+    }
+}
+
 void AsyncContext::GetGlobalObject(const Nan::FunctionCallbackInfo<v8::Value> &info)
 {
-    Nan::EscapableHandleScope scope;
-
-    v8::Local<v8::Function> cons = Nan::New<v8::Function>(::AsyncObjectScope::constructor);
-    v8::Local<v8::Object> instance = Nan::NewInstance(cons).ToLocalChecked();
-    auto* scp = Nan::ObjectWrap::Unwrap<AsyncObjectScope>(instance);
-    auto* ctxWrapper = ObjectWrap::Unwrap<AsyncContext>(info.Holder());
-    scp->setContext(ctxWrapper->getCtx());
-    info.GetReturnValue().Set(instance);
+    try
+    {
+        auto * contextWrapper = ObjectWrap::Unwrap<AsyncContext>(info.Holder());
+        contextWrapper->getCtx()->getObject("", info);
+    }
+    catch(const std::exception& err)
+    {
+        Nan::ThrowError(err.what());
+    }
 }
 

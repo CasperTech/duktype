@@ -11,7 +11,7 @@ namespace Duktype
     {
         public:
             ObjectScope();
-            ~ObjectScope();
+            virtual ~ObjectScope();
             void setProperty(const Nan::FunctionCallbackInfo<v8::Value> &info);
             void getProperty(const Nan::FunctionCallbackInfo<v8::Value> &info);
             void deleteProperty(const Nan::FunctionCallbackInfo<v8::Value> &info);

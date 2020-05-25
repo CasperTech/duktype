@@ -68,6 +68,7 @@ namespace Duktape
         {
             duk_throw(_ctx->getContext());
         }
+        funcName.resolved();
         return funcName;
     }
 

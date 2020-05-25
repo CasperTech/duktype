@@ -3,12 +3,17 @@
 
 #include <memory>
 #include <vector>
+#include <iostream>
 
 Nan::Persistent<v8::Function> ObjectScope::constructor;
 
 ObjectScope::ObjectScope()
 {
     _scope = std::unique_ptr<Duktype::ObjectScope>(new Duktype::ObjectScope());
+}
+
+ObjectScope::~ObjectScope()
+{
 }
 
 void ObjectScope::Init(v8::Local<v8::Object> exports)

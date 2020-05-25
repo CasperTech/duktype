@@ -9,21 +9,27 @@ namespace Duktype
     void Promise::handleThen(const Nan::FunctionCallbackInfo<v8::Value>& info)
     {
         PromiseData* dat = static_cast<PromiseData*>(info.Data().As<v8::External>()->Value());
-        std::shared_ptr<Context> ctxObj = dat->context;
+        std::shared_ptr<Context> ctxObj = dat->context.lock();
         std::string promiseHandle = dat->promiseHandle;
         delete dat;
         dat = nullptr;
-        ctxObj->resolvePromise(promiseHandle, info);
+        if (ctxObj)
+        {
+            ctxObj->resolvePromise(promiseHandle, info);
+        }
     }
 
     void Promise::handleCatch(const Nan::FunctionCallbackInfo<v8::Value>& info)
     {
         PromiseData* dat = static_cast<PromiseData*>(info.Data().As<v8::External>()->Value());
-        std::shared_ptr<Context> ctxObj = dat->context;
+        std::shared_ptr<Context> ctxObj = dat->context.lock();
         std::string promiseHandle = dat->promiseHandle;
         delete dat;
         dat = nullptr;
-        ctxObj->catchPromise(promiseHandle, info);
+        if (ctxObj)
+        {
+            ctxObj->catchPromise(promiseHandle, info);
+        }
     }
 
     int Promise::handleDukThen(duk_context* ctx)

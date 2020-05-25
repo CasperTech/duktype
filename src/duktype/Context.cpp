@@ -1,10 +1,10 @@
 #include "Context.h"
 #include "DebugStack.h"
 #include "ObjectHandle.h"
+#include <objectscope.h>
 #include "CallbackWeakRef.h"
 #include <duktape/DukGlobalStash.h>
-
-#include <sole/sole.hpp>
+#include <uuid/uuid.h>
 #include <callback.h>
 #include <iostream>
 #include <mutex>
@@ -13,7 +13,8 @@
 namespace Duktype
 {
     Context::Context()
-        : _duktape(std::unique_ptr<Duktape::DuktapeContext>(new Duktape::DuktapeContext(false)))
+        : _duktape(std::make_shared<Duktape::DuktapeContext>())
+        , _resourceManager(std::unique_ptr<ResourceManager>(new ResourceManager()))
     {
 
     }
@@ -47,27 +48,6 @@ namespace Duktype
         info.GetReturnValue().Set(funcName.toV8(shared_from_this()));
     }
 
-    void Context::handleCallbackDestroyed(const Nan::WeakCallbackInfo<CallbackWeakRef> &data)
-    {
-        CallbackWeakRef* ref = data.GetParameter();
-        ref->ctx->callbackDestroyed(ref->callbackID);
-        delete ref;
-    }
-
-    void Context::callbackDestroyed(const std::string& callbackID)
-    {
-        std::unique_lock<std::mutex > lk(_callbacksLock);
-        auto it = _callbacks.find(callbackID);
-        if (it == _callbacks.end())
-        {
-            return;
-        }
-        // Nan automatically resets our persistent in this case
-        // _callbacks[callbackID]->Reset();
-        delete _callbacks[callbackID];
-        _callbacks.erase(it);
-    }
-
     std::shared_ptr<::Duktape::DuktapeContext> Context::getDuktape()
     {
         return _duktape;
@@ -75,24 +55,24 @@ namespace Duktype
 
     void Context::registerPromise(const std::string& promiseHandle, const std::shared_ptr<Promise>& promise)
     {
-        _promises[promiseHandle] = promise;
+        _resourceManager->addPromiseFromNode(promiseHandle, promise);
     }
 
     void Context::registerDukPromise(const std::string& promiseHandle, Nan::Persistent<v8::Promise::Resolver>* resolver)
     {
-        _dukPromises[promiseHandle] = resolver;
+        _resourceManager->addPromiseFromDuk(promiseHandle, resolver);
     }
 
     void Context::handleDukThen(const std::string& promiseID, duk_context* c)
     {
+        DebugStack d("handleDukThen", c);
         /* DukTape */
-        auto it = _dukPromises.find(promiseID);
-        if (it == _dukPromises.end())
+        auto resolver = _resourceManager->resolveDukPromise(promiseID);
+        if (resolver == nullptr)
         {
             throw std::runtime_error("Promise not registered");
         }
-        auto resolver = (*it).second;
-        _dukPromises.erase(it);
+
         int nargs = duk_get_top(c);
         v8::Local<v8::Value> ret = Nan::Undefined();
         if (nargs > 0)
@@ -103,19 +83,19 @@ namespace Duktype
         }
         auto res = Nan::New(*resolver);
         res->Resolve(v8::Isolate::GetCurrent()->GetCurrentContext(), ret);
+        delete resolver;
     }
 
     void Context::handleDukCatch(const std::string& promiseID, duk_context* c)
     {
         DebugStack d("handleDukCatch", c);
         /* DukTape */
-        auto it = _dukPromises.find(promiseID);
-        if (it == _dukPromises.end())
+        auto resolver = _resourceManager->resolveDukPromise(promiseID);
+        if (resolver == nullptr)
         {
             throw std::runtime_error("Promise not registered");
         }
-        auto resolver = (*it).second;
-        _dukPromises.erase(it);
+
         int nargs = duk_get_top(c);
         v8::Local<v8::Value> ret = Nan::Undefined();
         if (nargs > 0)
@@ -126,25 +106,60 @@ namespace Duktype
         }
         auto res = Nan::New(*resolver);
         res->Reject(v8::Isolate::GetCurrent()->GetCurrentContext(), ret);
+        delete resolver;
     }
 
     int Context::handleFunctionFinalised(duk_context* ctx)
     {
+        duk_push_current_function(ctx);
+        duk_get_prop_string(ctx, -1, "__context");
+        void* ptr = duk_get_pointer(ctx, -1);
+        duk_pop_2(ctx);
+        return static_cast<Context*>(ptr)->functionFinalised(ctx);
+    }
+
+    int Context::functionFinalised(duk_context *ctx)
+    {
+        duk_push_current_function(ctx);
+        duk_get_prop_string(ctx, -1, "__callbackID");
+        std::string callbackID = duk_to_string(ctx, -1);
+        duk_pop(ctx);
+        duk_get_prop_string(ctx, -1, "__objectHandle");
+        std::string objectHandle = duk_to_string(ctx, -1);
+        duk_pop_2(ctx);
+
+        _resourceManager->nodeCallbackDereferencedInDuk(objectHandle, callbackID);
+        return 0;
+    }
+
+    int Context::objectFinalised(duk_context *ctx)
+    {
+        duk_push_current_function(ctx);
+        duk_get_prop_string(ctx, -1, "__objectHandle");
+        std::string objectName = duk_to_string(ctx, -1);
+        duk_pop_2(ctx);
+        _resourceManager->dukObjectDestroyed(objectName);
         return 0;
     }
 
     int Context::handleObjectFinalised(duk_context *ctx)
     {
-        return 0;
+        duk_push_current_function(ctx);
+        duk_get_prop_string(ctx, -1, "__context");
+        void* ptr = duk_get_pointer(ctx, -1);
+        duk_pop_2(ctx);
+        return static_cast<Context*>(ptr)->objectFinalised(ctx);
     }
 
     void Context::derefObject(const std::string& handle)
     {
-        DebugStack d("derefObject", _duktape->getContext());
-        duk_push_global_stash(_duktape->getContext());
-        duk_del_prop_string(_duktape->getContext(), -1, handle.c_str());
-        duk_pop(_duktape->getContext());
-        _objects.erase(handle);
+        if (!handle.empty() && handle != "GLOBAL")
+        {
+            duk_push_global_stash(_duktape->getContext());
+            duk_del_prop_string(_duktape->getContext(), -1, handle.c_str());
+            duk_pop(_duktape->getContext());
+            _resourceManager->removeNodeObjectHandle(handle);
+        }
     }
 
     void Context::derefCallback(const std::string &handle)
@@ -153,12 +168,18 @@ namespace Duktype
         duk_push_global_stash(_duktape->getContext());
         duk_del_prop_string(_duktape->getContext(), -1, handle.c_str());
         duk_pop(_duktape->getContext());
-        _dukCallbacks.erase(handle);
+
+        _resourceManager->removeCallbackFromDuk(handle);
     }
 
-    void Context::addCallback(const std::string &handle)
+    void Context::addCallback(const std::string& description, const std::string& handle)
     {
-        _dukCallbacks.insert(handle);
+        _resourceManager->addCallbackFromDuk(description, handle);
+    }
+
+    void Context::cleanRefs(const Nan::FunctionCallbackInfo<v8::Value> &info)
+    {
+        _resourceManager->cleanAll();
     }
 
     void Context::runGC(const Nan::FunctionCallbackInfo<v8::Value> &info)
@@ -246,22 +267,18 @@ namespace Duktype
 
         try
         {
-            Nan::Persistent<v8::Function>* cb;
+            Nan::Persistent<v8::Function>* cb = _resourceManager->getNodeCallback(callbackName);
+            if (cb == nullptr)
             {
-                std::unique_lock<std::mutex > lk(_callbacksLock);
-                auto it = _callbacks.find(callbackName);
-                if (it == _callbacks.end())
-                {
-                    std::cout << "Failed to find callback " << callbackName;
-                    return 0;
-                }
-                cb = (*it).second;
+                duk_push_error_object(ctx, DUK_ERR_ERROR, "%s", std::string("Failed to find callback " + callbackName).c_str());
+                duk_throw(ctx);
+                return 0;
             }
             std::vector<v8::Local<v8::Value>> params;
             duk_idx_t i, nargs;
             nargs = duk_get_top(ctx);
             Nan::EscapableHandleScope scope;
-            std::string uuid = sole::uuid4().str();
+            std::string uuid = UUID::v4();
             try
             {
                 for (i = 0; i < nargs; i++)
@@ -285,7 +302,12 @@ namespace Duktype
                 v8::Local<v8::Function> fn = Nan::New(*cb);
 
                 v8::Handle<v8::Object> global = v8::Isolate::GetCurrent()->GetCurrentContext()->Global();
-                v8::MaybeLocal<v8::Value> retMaybe = fn->Call(v8::Isolate::GetCurrent()->GetCurrentContext(), global, static_cast<int>(params.size()), &params[0]);
+                void* parameters = nullptr;
+                if(params.size() > 0)
+                {
+                    parameters = &params[0];
+                }
+                v8::MaybeLocal<v8::Value> retMaybe = fn->Call(v8::Isolate::GetCurrent()->GetCurrentContext(), global, static_cast<int>(params.size()), static_cast<v8::Local<v8::Value>*>(parameters));
                 if (tryCatch.HasCaught())
                 {
                     v8::Local<v8::Message> msg = tryCatch.Message();
@@ -313,8 +335,7 @@ namespace Duktype
     {
         if (info.Length() < 2 || !info[0]->IsString())
         {
-            Nan::ThrowError("Invalid or wrong number of arguments");
-            return;
+            throw std::runtime_error("Invalid or wrong number of arguments");
         }
         std::string propNameStr = *Nan::Utf8String(info[0]);
         DebugStack d("setProperty", _duktape->getContext());
@@ -324,49 +345,43 @@ namespace Duktype
         auto propertyValue = info[1];
         if (propertyValue->IsFunction())
         {
-            std::string callbackID = "_dcb:" + sole::uuid4().str();
+            std::string callbackID = "_dcb:" + UUID::v4();
             try
             {
                 duk_push_c_function(ctx, &Context::handleFunctionCall, DUK_VARARGS);
-
                 duk_push_c_function(ctx, &Context::handleFunctionFinalised, 1 /*nargs*/);
                 duk_push_string(ctx, callbackID.c_str());
                 duk_put_prop_string(ctx, -2, "__callbackID");
+                duk_push_string(ctx, objectHandle.c_str());
+                duk_put_prop_string(ctx, -2, "__objectHandle");
                 duk_push_pointer(ctx, static_cast<void*>(this));
                 duk_put_prop_string(ctx, -2, "__context");
                 duk_set_finalizer(ctx, -2);
 
+                // Handle of the containing object
+                duk_push_string(ctx, objectHandle.c_str());
+                duk_put_prop_string(ctx, -2, "__objectHandle");
                 // Callback name as a property for function object.
                 duk_push_string(ctx, callbackID.c_str());
                 duk_put_prop_string(ctx, -2, "__callbackID");
-
                 // Scope pointer
                 duk_push_pointer(ctx, static_cast<void*>(this));
                 duk_put_prop_string(ctx, -2, "__context");
 
                 // Give the function a name
                 duk_put_prop_string(ctx, -2, propNameStr.c_str());
-
                 {
                     Nan::HandleScope scope;
-                    std::unique_lock<std::mutex > lk(_callbacksLock);
-
                     v8::Local<v8::Function> callbackFunction = Nan::To<v8::Function>(propertyValue).ToLocalChecked();
-
-                    Nan::Callback c(callbackFunction);
 
                     auto* persistedFunc = new Nan::Persistent<v8::Function>();
                     persistedFunc->Reset(callbackFunction);
-                    CallbackWeakRef* ref = new CallbackWeakRef();
-                    ref->callbackID = callbackID;
-                    ref->ctx = shared_from_this();
-                    persistedFunc->SetWeak(ref, &Context::handleCallbackDestroyed, Nan::WeakCallbackType::kParameter);
-                    _callbacks[callbackID] = persistedFunc;
+                    _resourceManager->addCallbackFromNode(std::string("Property " + propNameStr + " on object " + objectHandle), objectHandle, callbackID, persistedFunc);
                 }
             }
-            catch (...)
+            catch (const std::exception& e)
             {
-                Nan::ThrowError("Error occurred while adding the function");
+                Nan::ThrowError(e.what());
             }
             return;
         }
@@ -382,8 +397,7 @@ namespace Duktype
         DebugStack d("getProperty", _duktape->getContext(), 1);
         if (info.Length() < 1 || !info[0]->IsString())
         {
-            Nan::ThrowError("Invalid or wrong number of arguments");
-            return;
+            throw std::runtime_error("Invalid or wrong number of arguments");
         }
 
         duk_context* ctx = _duktape->getContext();
@@ -413,8 +427,7 @@ namespace Duktype
         DebugStack d("deleteProperty", _duktape->getContext());
         if (info.Length() < 1 || !info[0]->IsString())
         {
-            Nan::ThrowError("Invalid or wrong number of arguments");
-            return;
+            throw std::runtime_error("Invalid or wrong number of arguments");
         }
 
         duk_context* ctx = _duktape->getContext();
@@ -422,8 +435,7 @@ namespace Duktype
 
         if (info.Length() < 1 || !info[0]->IsString())
         {
-            Nan::ThrowError("Invalid or wrong number of arguments");
-            return;
+            throw std::runtime_error("Invalid or wrong number of arguments");
         }
 
         int objIndex = duk_get_top(ctx) - 1;
@@ -446,21 +458,19 @@ namespace Duktype
         DebugStack d("createObject", _duktape->getContext());
         if (info.Length() < 1 || !info[0]->IsString())
         {
-            Nan::ThrowError("Invalid or wrong number of arguments");
-            return {};
+            throw std::runtime_error("Invalid or wrong number of arguments");
         }
 
-        std::string objectHandle = sole::uuid4().str();
+        std::string objectHandle = UUID::v4();
 
         duk_context* ctx = _duktape->getContext();
         ObjectHandle handle(_duktape, parentHandle);
 
         std::string objNameStr = *Nan::Utf8String(info[0]);
         Duktape::DukValue::newObject(_duktape);
-
         duk_push_c_function(ctx, &Context::handleObjectFinalised, 1 /*nargs*/);
             duk_push_string(ctx, objectHandle.c_str());
-            duk_put_prop_string(ctx, -2, "__promiseHandle");
+            duk_put_prop_string(ctx, -2, "__objectHandle");
             duk_push_pointer(ctx, static_cast<void*>(this));
             duk_put_prop_string(ctx, -2, "__context");
             duk_set_finalizer(ctx, -2);
@@ -470,48 +480,65 @@ namespace Duktype
         duk_put_prop_string(ctx, -2, objectHandle.c_str());
         duk_pop(ctx);
         duk_put_prop_string(ctx, -2, objNameStr.c_str());
-        _objects.insert(objectHandle);
+
+        _resourceManager->addDukObjectForNode("(sync createObject) " + objNameStr + " on parent " + parentHandle, objectHandle);
         return objectHandle;
     }
 
-    void Context::getObjectReferenceCount(const Nan::FunctionCallbackInfo<v8::Value> &info)
-    {
-        info.GetReturnValue().Set(Nan::New(static_cast<double>(_objects.size())));
-    }
-
-    std::string Context::getObject(const std::string& parentHandle, const Nan::FunctionCallbackInfo<v8::Value> &info)
+    void Context::getObject(const std::string& parentHandle, const Nan::FunctionCallbackInfo<v8::Value> &info)
     {
         DebugStack d("getObject", _duktape->getContext());
-        std::string objectHandle = sole::uuid4().str();
+        std::string objectHandle = UUID::v4();
+        std::string objNameStr;
+
+        if (info.Length() > 0 && info[0]->IsString())
+        {
+            objNameStr = *Nan::Utf8String(info[0]);
+        }
 
         duk_context* ctx = _duktape->getContext();
         ObjectHandle handle(_duktape, parentHandle);
-
-        if (duk_is_object(ctx, -1))
+        if (!objNameStr.empty())
         {
-            Nan::ThrowError("No such object in this scope");
+            duk_get_prop_string(ctx, -1, objNameStr.c_str());
+        }
+        if (!duk_is_object(ctx, -1))
+        {
+            throw std::runtime_error("No such object in this scope");
         }
 
         duk_push_global_stash(ctx);
         duk_dup(ctx, -2);
         duk_put_prop_string(ctx, -2, objectHandle.c_str());
         duk_pop(ctx);
+        if (!objNameStr.empty())
+        {
+            duk_pop(ctx);
+        }
 
-        _objects.insert(objectHandle);
+        _resourceManager->addDukObjectForNode("(sync getObject) " + objNameStr + " on parent " + parentHandle, objectHandle);
 
-        return objectHandle;
+        v8::Local<v8::Function> cons = Nan::New<v8::Function>(::ObjectScope::constructor);
+        v8::Local<v8::Object> instance = Nan::NewInstance(cons).ToLocalChecked();
+        auto* scp = Nan::ObjectWrap::Unwrap<::ObjectScope>(instance);
+        scp->setContext(shared_from_this());
+        scp->getObjectScope()->setHandle(objectHandle);
+        info.GetReturnValue().Set(instance);
+    }
+
+    void Context::getObjectReferenceCount(const Nan::FunctionCallbackInfo<v8::Value> &info)
+    {
+        info.GetReturnValue().Set(Nan::New(static_cast<double>(_resourceManager->getObjectRefCount())));
     }
 
     void Context::resolvePromise(const std::string& promiseHandle, const Nan::FunctionCallbackInfo<v8::Value>& info)
     {
         DebugStack d("resolvePromise", _duktape->getContext());
-        auto it = _promises.find(promiseHandle);
-        if (it == _promises.end())
+        auto promise = _resourceManager->resolveNodePromise(promiseHandle);
+        if (!promise)
         {
             throw std::runtime_error("Attempting to retrieve promise which does not exist");
         }
-        auto promise = (*it).second;
-        _promises.erase(it);
         try
         {
             duk_context* ctx = _duktape->getContext();
@@ -548,13 +575,11 @@ namespace Duktype
     void Context::catchPromise(const std::string& promiseHandle, const Nan::FunctionCallbackInfo<v8::Value>& info)
     {
         DebugStack d("catchPromise", _duktape->getContext());
-        auto it = _promises.find(promiseHandle);
-        if (it == _promises.end())
+        auto promise = _resourceManager->resolveNodePromise(promiseHandle);
+        if (!promise)
         {
             throw std::runtime_error("Attempting to retrieve promise which does not exist");
         }
-        auto promise = (*it).second;
-        _promises.erase(it);
         try
         {
             duk_context* ctx = _duktape->getContext();

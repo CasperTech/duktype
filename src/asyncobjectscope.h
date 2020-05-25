@@ -20,6 +20,7 @@ class AsyncObjectScope: public Nan::ObjectWrap
 
     private:
         explicit AsyncObjectScope();
+        ~AsyncObjectScope();
 
         static void New(const Nan::FunctionCallbackInfo<v8::Value> &info);
 

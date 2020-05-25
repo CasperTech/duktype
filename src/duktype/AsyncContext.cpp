@@ -5,7 +5,7 @@
 #include "ObjectHandle.h"
 #include "DebugStack.h"
 #include <asynccallback.h>
-#include <sole/sole.hpp>
+#include <uuid/uuid.h>
 #include <asyncobjectscope.h>
 #include <iostream>
 
@@ -21,12 +21,7 @@ namespace Duktype
 
     AsyncContext::~AsyncContext()
     {
-        std::unique_lock<std::mutex> lk(_callbacksLock);
-        for(const auto& cb: _callbacks)
-        {
-            delete cb.second;
-        }
-        _callbacks.clear();
+
     }
 
     v8::Local<v8::Function> AsyncContext::getCallbackConstructor()
@@ -74,16 +69,13 @@ namespace Duktype
 
     void AsyncContext::resolvePromise(const std::string& promiseHandle, const Nan::FunctionCallbackInfo<v8::Value>& info)
     {
-        auto it = _promises.find(promiseHandle);
-        if (it == _promises.end())
+        auto promise = _resourceManager->resolveNodePromise(promiseHandle);
+        if (!promise)
         {
             throw std::runtime_error("Attempting to retrieve promise which does not exist");
         }
-        auto promise = (*it).second;
-        _promises.erase(it);
 
-
-        AsyncJob* job = new AsyncJob("ResolvePromise", _jobScheduler, _dukScheduler, _nodeScheduler, std::static_pointer_cast<AsyncContext>(shared_from_this()));
+        auto* job = new AsyncJob("ResolvePromise", _jobScheduler, _dukScheduler, _nodeScheduler, std::static_pointer_cast<AsyncContext>(shared_from_this()));
         job->setPreArgsWork([&, promiseHandle](AsyncJob* job)
                             {
                                 duk_push_global_stash(_duktape->getContext());
@@ -134,13 +126,11 @@ namespace Duktype
             Nan::HandleScope h;
             DebugStack d("handleDukThen", ctx);
             /* DukTape */
-            auto it = _dukPromises.find(promiseID);
-            if (it == _dukPromises.end())
+            auto resolver = _resourceManager->resolveDukPromise(promiseID);
+            if (resolver == nullptr)
             {
                 throw std::runtime_error("Promise not registered");
             }
-            auto resolver = (*it).second;
-            _dukPromises.erase(it);
             int nargs = duk_get_top(ctx);
             v8::Local<v8::Value> ret = Nan::Undefined();
             if (nargs > 0)
@@ -157,7 +147,7 @@ namespace Duktype
         {
             duk_push_error_object(ctx, DUK_ERR_ERROR, "%s", job->errorMessage().c_str());
             delete job;
-            duk_throw(ctx);
+            return (void)duk_throw(ctx);
         }
         delete job;
     }
@@ -170,13 +160,11 @@ namespace Duktype
         {
             Nan::HandleScope h;
             /* DukTape */
-            auto it = _dukPromises.find(promiseID);
-            if (it == _dukPromises.end())
+            auto resolver = _resourceManager->resolveDukPromise(promiseID);
+            if (resolver == nullptr)
             {
                 throw std::runtime_error("Promise not registered");
             }
-            auto resolver = (*it).second;
-            _dukPromises.erase(it);
             int nargs = duk_get_top(ctx);
             v8::Local<v8::Value> ret = Nan::Undefined();
             if (nargs > 0)
@@ -193,20 +181,20 @@ namespace Duktype
         {
             duk_push_error_object(ctx, DUK_ERR_ERROR, "%s", job->errorMessage().c_str());
             delete job;
-            duk_throw(ctx);
+            return (void)duk_throw(ctx);
         }
         delete job;
     }
 
     void AsyncContext::derefObject(const std::string& handle)
     {
+        _resourceManager->removeNodeObjectHandle(handle);
         AsyncJob* job = new AsyncJob("DeRefObject", _jobScheduler, _dukScheduler, _nodeScheduler, std::static_pointer_cast<AsyncContext>(shared_from_this()));
         job->setWork([&, handle](AsyncJob* job, uint32_t argCount)
                      {
                          duk_push_global_stash(_duktape->getContext());
                          duk_del_prop_string(_duktape->getContext(), -1, handle.c_str());
                          duk_pop(_duktape->getContext());
-                         _objects.erase(handle);
                      });
         job->run();
     }
@@ -220,7 +208,7 @@ namespace Duktype
                          duk_push_global_stash(_duktape->getContext());
                          duk_del_prop_string(_duktape->getContext(), -1, handle.c_str());
                          duk_pop(_duktape->getContext());
-                         _dukCallbacks.erase(handle);
+                         _resourceManager->removeCallbackFromDuk(handle);
                      });
         job->run();
 
@@ -237,25 +225,21 @@ namespace Duktype
 
         if (info[1]->IsFunction())
         {
-            std::string callbackID = "_dcb:" + sole::uuid4().str();
-
+            std::string callbackID = "_dcb:" + UUID::v4();
             v8::Local<v8::Function> callbackFunction = Nan::To<v8::Function>(info[1]).ToLocalChecked();
             auto* persistedFunc = new Nan::Persistent<v8::Function>(callbackFunction);
-            CallbackWeakRef* ref = new CallbackWeakRef();
-            ref->callbackID = callbackID;
-            ref->ctx = shared_from_this();
-            persistedFunc->SetWeak(ref, &Context::handleCallbackDestroyed, Nan::WeakCallbackType::kParameter);
-            {
-                std::unique_lock<std::mutex> lk(_callbacksLock);
-                _callbacks[callbackID] = persistedFunc;
-            }
+
+            // We only want to set this weak when the duktape reference is removed
+            //persistedFunc->SetWeak(ref, &Context::handleCallbackDestroyed, Nan::WeakCallbackType::kParameter);
+
+            _resourceManager->addCallbackFromNode(std::string("(Async) Property " + propNameStr + " on object " + objectHandle), objectHandle, callbackID, persistedFunc);
 
             AsyncJob* job = new AsyncJob("SetPropertyFunction", _jobScheduler, _dukScheduler, _nodeScheduler, std::static_pointer_cast<AsyncContext>(shared_from_this()));
             job->setWork([&, callbackID, objectHandle, propNameStr](AsyncJob* job, uint32_t argCount)
             {
                 DebugStack d("SetPropertyFunc", _duktape->getContext(), 1);
                 duk_context* ctx = _duktape->getContext();
-                if (objectHandle.empty())
+                if (objectHandle.empty() || objectHandle == "GLOBAL")
                 {
                     duk_push_global_object(ctx);
                     job->setPops(1);
@@ -264,6 +248,7 @@ namespace Duktype
                 {
                     duk_push_global_stash(ctx);
                     duk_get_prop_string(ctx, -1, objectHandle.c_str());
+                    d.addExpected(1);
                     job->setPops(2);
                 }
                 int objIndex = duk_get_top_index(ctx);
@@ -277,6 +262,10 @@ namespace Duktype
                         duk_put_prop_string(ctx, -2, "__callbackID");
                     }
                     {
+                        duk_push_string(ctx, objectHandle.c_str());
+                        duk_put_prop_string(ctx, -2, "__objectHandle");
+                    }
+                    {
                         duk_push_pointer(ctx, static_cast<void*>(this));
                         duk_put_prop_string(ctx, -2, "__context");
                     }
@@ -285,6 +274,9 @@ namespace Duktype
                 // Callback name as a property for function object.
                 duk_push_string(ctx, callbackID.c_str());
                 duk_put_prop_string(ctx, -2, "__callbackID");
+                // Object handle
+                duk_push_string(ctx, objectHandle.c_str());
+                duk_put_prop_string(ctx, -2, "__objectHandle");
                 // Scope pointer
                 duk_push_pointer(ctx, static_cast<void*>(this));
                 duk_put_prop_string(ctx, -2, "__context");
@@ -301,7 +293,7 @@ namespace Duktype
         {
             DebugStack d("setPropertyPre", _duktape->getContext(), 1);
             duk_context* ctx = _duktape->getContext();
-            if (objectHandle.empty())
+            if (objectHandle.empty() || objectHandle == "GLOBAL")
             {
                 duk_push_global_object(ctx);
                 job->setPops(1);
@@ -310,6 +302,7 @@ namespace Duktype
             {
                 duk_push_global_stash(ctx);
                 duk_get_prop_string(ctx, -1, objectHandle.c_str());
+                d.addExpected(1);
                 job->setPops(2);
             }
         });
@@ -365,21 +358,19 @@ namespace Duktype
             duk_get_prop_string(ctx, -1, "__callbackID");
             std::string callbackName = duk_to_string(ctx, -1);
             duk_pop_2(ctx);
-            Nan::Persistent<v8::Function>* cb;
+
+            Nan::Persistent<v8::Function>* cb = _resourceManager->getNodeCallback(callbackName);
+            if (cb == nullptr)
             {
-                std::unique_lock<std::mutex> lk(_callbacksLock);
-                auto it = _callbacks.find(callbackName);
-                if (it == _callbacks.end())
-                {
-                    return;
-                }
-                cb = (*it).second;
+                d.addExpected(-1);
+                throw std::runtime_error("The callback reference has been garbage collected by V8");
             }
+
             std::vector<v8::Local<v8::Value>> params;
             duk_idx_t i, nargs;
             nargs = duk_get_top(ctx);
             Nan::EscapableHandleScope handleScope;
-            std::string uuid = sole::uuid4().str();
+            std::string uuid = UUID::v4();
             for (i = 0; i < nargs; i++)
             {
                 int argIndex = (0 - nargs) + (i + 1);
@@ -395,14 +386,18 @@ namespace Duktype
                     std::cout << "Exception: " << e.what() << std::endl;
                 }
             }
-
             Nan::AsyncResource resource("duktype:callback");
             Nan::TryCatch tryCatch;
 
 
             v8::Local<v8::Function> fn = Nan::New(*cb);
             v8::Handle<v8::Object> global = v8::Isolate::GetCurrent()->GetCurrentContext()->Global();
-            v8::MaybeLocal<v8::Value> retMaybe = fn->Call(v8::Isolate::GetCurrent()->GetCurrentContext(), global, static_cast<int>(params.size()), &params[0]);
+            void* parameters = nullptr;
+            if(params.size() > 0)
+            {
+                parameters = &params[0];
+            }
+            v8::MaybeLocal<v8::Value> retMaybe = fn->Call(v8::Isolate::GetCurrent()->GetCurrentContext(), global, static_cast<int>(params.size()), static_cast<v8::Local<v8::Value>*>(parameters));
 
             if (tryCatch.HasCaught())
             {
@@ -421,6 +416,7 @@ namespace Duktype
             duk_push_error_object(ctx, DUK_ERR_ERROR, "%s", job->errorMessage().c_str());
             delete job;
             duk_throw(ctx);
+            return 0;
         }
         delete job;
         return result;
@@ -438,8 +434,9 @@ namespace Duktype
         job->setWork([&, objectHandle, propNameStr](AsyncJob* job, uint32_t argCount)
         {
             duk_context* ctx = _duktape->getContext();
-            if (objectHandle.empty())
+            if (objectHandle.empty() || objectHandle == "GLOBAL")
             {
+                std::cout << "WARNING: GetProperty on empty or GLOBAL handle" << std::endl;
                 duk_push_global_object(ctx);
                 job->setPops(1);
             }
@@ -468,8 +465,9 @@ namespace Duktype
         job->setWork([&, objectHandle, propNameStr](AsyncJob* job, uint32_t argCount)
         {
             duk_context* ctx = _duktape->getContext();
-            if (objectHandle.empty())
+            if (objectHandle.empty() || objectHandle == "GLOBAL")
             {
+                std::cout << "WARNING: DeleteProperty on empty or GLOBAL handle" << std::endl;
                 duk_push_global_object(ctx);
                 job->setPops(1);
             }
@@ -494,21 +492,21 @@ namespace Duktype
             return;
         }
 
-        std::string objectHandle = sole::uuid4().str();
+        std::string objectHandle = UUID::v4();
 
         AsyncJob* job = new AsyncJob("CreateObjectAsync", _jobScheduler, _dukScheduler, _nodeScheduler, std::static_pointer_cast<AsyncContext>(shared_from_this()));
-        _objects.insert(objectHandle);
         std::string objNameStr = *Nan::Utf8String(info[0]);
+        _resourceManager->addDukObjectForNode("(async createObject) " + objNameStr + " on parent " + parentObjectHandle, objectHandle);
         job->setWork([&, parentObjectHandle, objectHandle, objNameStr](AsyncJob* job, uint32_t argCount)
         {
             duk_context* ctx = _duktape->getContext();
             ObjectHandle handle(_duktape, parentObjectHandle);
 
-
             Duktape::DukValue::newObject(_duktape);
             duk_push_c_function(ctx, &Context::handleObjectFinalised, 1 /*nargs*/);
             duk_push_string(ctx, objectHandle.c_str());
-            duk_put_prop_string(ctx, -2, "__promiseHandle");
+            duk_put_prop_string(ctx, -2, "__objectHandle");
+
             duk_push_pointer(ctx, static_cast<void*>(this));
             duk_put_prop_string(ctx, -2, "__context");
             duk_set_finalizer(ctx, -2);
@@ -534,9 +532,59 @@ namespace Duktype
         job->runWithPromise(info, true);
     }
 
-    std::string AsyncContext::getObject(const std::string& parentObjectHandle, const Nan::FunctionCallbackInfo<v8::Value> &info)
+    void AsyncContext::getObject(const std::string& parentObjectHandle, const Nan::FunctionCallbackInfo<v8::Value> &info)
     {
-        return "";
+        std::string objectHandle = UUID::v4();
+
+        AsyncJob* job = new AsyncJob("GetObject", _jobScheduler, _dukScheduler, _nodeScheduler, std::static_pointer_cast<AsyncContext>(shared_from_this()));
+
+        std::string objNameStr;
+
+        if (info.Length() > 0 && info[0]->IsString())
+        {
+            objNameStr = *Nan::Utf8String(info[0]);
+        }
+        job->setWork([&, parentObjectHandle, objectHandle, objNameStr](AsyncJob* job, uint32_t argCount)
+        {
+            DebugStack d("getObject", _duktape->getContext());
+
+            duk_context* ctx = _duktape->getContext();
+            ObjectHandle handle(_duktape, parentObjectHandle);
+
+            if (!objNameStr.empty())
+            {
+                duk_get_prop_string(ctx, -1, objNameStr.c_str());
+            }
+            if (!duk_is_object(ctx, -1))
+            {
+                throw std::runtime_error("No such object in this scope");
+            }
+
+            duk_push_global_stash(ctx);
+            duk_dup(ctx, -2);
+            duk_put_prop_string(ctx, -2, objectHandle.c_str());
+            duk_pop(ctx);
+
+            if (!objNameStr.empty())
+            {
+                duk_pop(ctx);
+            }
+        });
+        job->setReturnValueWork([&, objectHandle, objNameStr, parentObjectHandle](AsyncJob* job)->v8::Local<v8::Value>
+        {
+            Nan::HandleScope h;
+            Nan::EscapableHandleScope scope;
+            v8::Local<v8::Function> cons = Nan::New<v8::Function>(::AsyncObjectScope::constructor);
+            v8::Local<v8::Object> instance = Nan::NewInstance(cons).ToLocalChecked();
+            auto* scp = Nan::ObjectWrap::Unwrap<::AsyncObjectScope>(instance);
+            scp->setContext(std::static_pointer_cast<AsyncContext>(shared_from_this()));
+            scp->getObjectScope()->setHandle(objectHandle);
+
+            std::string desc = "(async getObject) " + objNameStr + " on parent " + parentObjectHandle;
+            _resourceManager->addDukObjectForNode(desc, objectHandle);
+            return instance;
+        });
+        job->runWithPromise(info, true);
     }
 
     void AsyncContext::callMethod(const std::string& objectHandle, const std::string& methodName, const Nan::FunctionCallbackInfo<v8::Value>& info)
@@ -545,7 +593,7 @@ namespace Duktype
         job->setPreArgsWork([&, objectHandle, methodName](AsyncJob* job)
         {
             duk_context * ctx = _duktape->getContext();
-            if (objectHandle.empty())
+            if (objectHandle.empty() || objectHandle == "GLOBAL")
             {
                 duk_push_global_object(ctx);
                 job->setPops(1);

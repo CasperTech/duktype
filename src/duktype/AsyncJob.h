@@ -7,6 +7,7 @@
 
 #include <functional>
 #include <mutex>
+#include <map>
 #include <condition_variable>
 
 namespace Duktype
@@ -64,5 +65,9 @@ namespace Duktype
             std::weak_ptr<AsyncJobScheduler> _dukScheduler;
             std::weak_ptr<AsyncNodeScheduler> _nodeScheduler;
             std::weak_ptr<AsyncJobScheduler> _jobScheduler;
+
+            static std::mutex activeJobsMutex;
+            static std::map<std::string, std::string> activeJobs;
+            std::string _jobUUID;
     };
 }

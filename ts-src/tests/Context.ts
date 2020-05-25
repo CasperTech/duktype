@@ -509,8 +509,20 @@ describe('ObjectScope', () =>
 
     it('objects should be garbage collected properly', (done: Done) =>
     {
+        if (globalObj === undefined)
+        {
+            return done(new Error('GlobalObject is undefined'));
+        }
         childObject = undefined;
         furtherChild = undefined;
+        for(const funcs of [
+            'dump',
+            'test',
+            'howmany',
+            'multipleArgumentFunc'])
+        {
+            globalObj.deleteProperty(funcs);
+        }
         global.gc();
         if (ctx === undefined)
         {
@@ -1669,12 +1681,23 @@ describe('Memory', () => {
                 globalObj.deleteProperty(funcs);
             }
         }
-        if (ctx !== undefined)
-        {
-            ctx.disableTimers();
-            ctx.runGC();
-        }
         globalObj = undefined;
+
+        if (ctx === undefined)
+        {
+            throw new Error('Context is undefined');
+        }
+
+        ctx.disableTimers();
+        ctx.cleanRefs();
+        ctx.runGC();
+        global.gc();
+        const objectRefs = ctx.getObjectReferenceCount();
+        if (objectRefs !== 1)
+        {
+            throw new Error('Object ref count is ' + objectRefs);
+        }
+
         ctx = undefined;
         global.gc();
     });

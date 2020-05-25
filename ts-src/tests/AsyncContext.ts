@@ -302,7 +302,13 @@ describe('ObjectScope', () =>
         {
             throw new Error('GlobalObject is undefined');
         }
+        if (ctx === undefined)
+        {
+            throw new Error('Context is undefined');
+        }
         await globalObj.deleteProperty('foo');
+        global.gc();
+        await ctx.runGC();
         if (furtherChild !== undefined)
         {
             const result = await furtherChild.callMethod('count', 12);
@@ -311,6 +317,10 @@ describe('ObjectScope', () =>
                 throw new Error();
             }
         }
+        childObject = undefined;
+        furtherChild = undefined;
+        global.gc();
+        await ctx.runGC();
     });
 
     it('objects should be garbage collected properly', async() =>
@@ -319,8 +329,18 @@ describe('ObjectScope', () =>
         {
             throw new Error('Context is undefined');
         }
-        childObject = undefined;
-        furtherChild = undefined;
+        if (globalObj === undefined)
+        {
+            throw new Error('GlobalObject is undefined');
+        }
+        for(const funcs of [
+            'dump',
+            'test',
+            'howmany',
+            'multipleArgumentFunc'])
+        {
+            await globalObj.deleteProperty(funcs);
+        }
         global.gc();
         await ctx.runGC();
         const objectRefs = ctx.getObjectReferenceCount();
@@ -1254,12 +1274,10 @@ describe('Complex operations', async() =>
                 await globalObj.deleteProperty(funcs);
             }
         }
-
         if (ctx === undefined)
         {
             throw new Error('Context is undefined');
         }
-
         await ctx.disableTimers();
         await ctx.cleanRefs();
         await ctx.runGC();

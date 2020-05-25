@@ -17,6 +17,10 @@ namespace Duktape
         bool res = duk_next(_ctx->getContext(), _stackIndex, includeValue ? 1 : 0);
         if (res)
         {
+            if(!includeValue)
+            {
+                duk_push_undefined(_ctx->getContext());
+            }
             DukValue key(_ctx, -1);
             DukValue value(_ctx);
             cb(key, value);

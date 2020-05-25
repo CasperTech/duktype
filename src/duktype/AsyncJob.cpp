@@ -3,10 +3,16 @@
 #include "AsyncContext.h"
 #include "AsyncJobScheduler.h"
 #include "AsyncNodeScheduler.h"
+
+#include <uuid/uuid.h>
+
 #include <iostream>
 
 namespace Duktype
 {
+    std::mutex AsyncJob::activeJobsMutex;
+    std::map<std::string, std::string> AsyncJob::activeJobs;
+
     AsyncJob::AsyncJob(const std::string& jobID, const std::shared_ptr<AsyncJobScheduler>& jobScheduler, const std::shared_ptr<AsyncJobScheduler>& dukScheduler, const std::shared_ptr<AsyncNodeScheduler>& nodeScheduler, const std::shared_ptr<AsyncContext>& ctx)
         : _dukScheduler(dukScheduler)
         , _nodeScheduler(nodeScheduler)
@@ -14,11 +20,23 @@ namespace Duktype
         , _ctx(ctx)
         , _jobID(jobID)
     {
-
+        _jobUUID = UUID::v4();
+        {
+            std::unique_lock<std::mutex> lk(activeJobsMutex);
+            AsyncJob::activeJobs[_jobUUID] = jobID;
+        }
     }
 
     AsyncJob::~AsyncJob()
     {
+        {
+            std::unique_lock<std::mutex> lk(activeJobsMutex);
+            auto it = activeJobs.find(_jobUUID);
+            if (it != activeJobs.end())
+            {
+                activeJobs.erase(it);
+            }
+        }
     }
 
     void AsyncJob::setArgs(const Nan::FunctionCallbackInfo<v8::Value>& info, int startArg)
@@ -103,6 +121,11 @@ namespace Duktype
         {
             // We need to queue yet another job so we don't delay our event loop
             _nodeScheduler.lock()->resolvePromise(_resolver, _error, _errorMessage, _returnValue);
+        }
+        else if (_returnValue)
+        {
+            std::cout << "Clearing return value" << std::endl;
+            delete _returnValue;
         }
         delete this;
     }

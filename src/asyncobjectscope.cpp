@@ -12,6 +12,10 @@ AsyncObjectScope::AsyncObjectScope()
     _scope = std::unique_ptr<Duktype::AsyncObjectScope>(new Duktype::AsyncObjectScope());
 }
 
+AsyncObjectScope::~AsyncObjectScope()
+{
+}
+
 void AsyncObjectScope::Init(v8::Local<v8::Object> exports)
 {
     v8::Local<v8::Context> context = exports->CreationContext();

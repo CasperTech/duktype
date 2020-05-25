@@ -1,4 +1,5 @@
 #include "AsyncNodeScheduler.h"
+#include "ResourceManager.h"
 #include <uv.h>
 #include <initnan.h>
 
@@ -27,7 +28,8 @@ namespace Duktype
         _schedulerThread.detach();
         uv_unref(reinterpret_cast<uv_handle_t*>(_asyncWork));
         uv_close(reinterpret_cast<uv_handle_t*>(_asyncWork), [](uv_handle_t* handle){
-            delete handle;
+            // Apparently this causes a crash, already freed?
+            //delete handle;
         });
     }
 
@@ -62,9 +64,10 @@ namespace Duktype
         {
             asyncData->runFunc();
         }
-        catch(...)
+        catch(const std::exception& e)
         {
             std::cout << "WARNING: Caught exception in handleRunInContext" << std::endl;
+            std::cout << e.what() << std::endl;
         }
 
         std::function<void()> afterWorkFunc = asyncData->afterWork;
@@ -115,19 +118,17 @@ namespace Duktype
                         {
                             v8::Local<v8::Value> returnVal = Nan::New(*t->returnValue);
                             resolver->Resolve(isolate->GetCurrentContext(), returnVal);
-                            t->returnValue->Reset();
-                            delete t->returnValue;
+                            t->returnValue->SetWeak(t->returnValue, &ResourceManager::finaliseDestroyValue, Nan::WeakCallbackType::kParameter);
                         }
                         else
                         {
                             resolver->Resolve(isolate->GetCurrentContext(), Nan::Undefined());
                         }
                     }
-                    t->resolver->Reset();
                 }
                 if (t->resolver != nullptr)
                 {
-                    delete t->resolver;
+                    t->resolver->SetWeak(t->resolver, &ResourceManager::finaliseDestroyPromise, Nan::WeakCallbackType::kParameter);
                 }
                 delete t;
             }, []()

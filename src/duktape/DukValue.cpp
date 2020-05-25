@@ -2,12 +2,13 @@
 #include "DukEnum.h"
 #include "DukGlobalStash.h"
 #include "DuktapeContext.h"
+#include <duktype/DebugStack.h>
 #include <duktype/Context.h>
 #include <duktype/Promise.h>
 #include <duktype/PromiseData.h>
 #include <callback.h>
 #include <iostream>
-#include <sole/sole.hpp>
+#include <uuid/uuid.h>
 
 namespace Duktape
 {
@@ -202,7 +203,7 @@ namespace Duktape
             }
             else if (constructorName == "Promise")
             {
-                std::string promiseHandle = "_promise:" + sole::uuid4().str();
+                std::string promiseHandle = "_promise:" + ::Duktype::UUID::v4();
 
                 (void) duk_get_global_string(ctx, "Promise");
 
@@ -303,13 +304,13 @@ namespace Duktape
         duk_push_array(ctx->getContext());
     }
 
-    void DukValue::resolved()
+    void DukValue::resolved(bool resolved)
     {
-        if (_resolved)
+        if (resolved && _resolved)
         {
             throw std::runtime_error("Resolved called on DukValue which has already been resolved");
         }
-        _resolved = true;
+        _resolved = resolved;
     }
 
     void DukValue::dupe()
@@ -371,6 +372,7 @@ namespace Duktape
     v8::Local<v8::Value> DukValue::toV8(const std::shared_ptr<Duktype::Context>& context)
     {
         duk_context* ctx = _ctx->getContext();
+        DebugStack ds("toV8", ctx);
         int type = duk_get_type(ctx, _stackIndex);
         switch (type)
         {
@@ -491,8 +493,9 @@ namespace Duktape
                     if (instanceOf("Date"))
                     {
                         DukValue result = callMethod(context, "getTime");
-
-                        auto date = Nan::New<v8::Date>(result.getNumber());
+                        result.resolved(false);
+                        double num = result.getNumber();
+                        auto date = Nan::New<v8::Date>(num);
                         return date.ToLocalChecked();
                     }
                     else if (instanceOf("Error"))
@@ -505,7 +508,7 @@ namespace Duktape
                         // We need to:
                         //
                         // 1. callMethod "then" and push a handler function with a bound promiseID
-                        std::string promiseHandle = "_promiseDuk:" + sole::uuid4().str();
+                        std::string promiseHandle = "_promiseDuk:" + ::Duktype::UUID::v4();
 
                         {
                             DukValue::newString(_ctx, "then");
@@ -514,7 +517,7 @@ namespace Duktape
                             int funcIndex = duk_get_top_index(ctx);
 
                             duk_push_c_function(ctx, &Duktype::Promise::dukThenFinalised, 1);
-                             duk_push_string(ctx, promiseHandle.c_str());
+                            duk_push_string(ctx, promiseHandle.c_str());
                             duk_put_prop_string(ctx, -2, "__promiseHandle");
                             duk_push_pointer(ctx, context.get());
                             duk_put_prop_string(ctx, -2, "__context");
@@ -560,7 +563,7 @@ namespace Duktape
                     else if (duk_is_function(ctx, _stackIndex))
                     {
                         // Possibly a callback, let's prepare for that possibility..
-                        std::string callbackHandle = "_cb:" + sole::uuid4().str();
+                        std::string callbackHandle = "_cb:" + ::Duktype::UUID::v4();
 
                         {
                             DukGlobalStash globalStash(_ctx);
@@ -584,7 +587,7 @@ namespace Duktape
                         Duktype::Callback* unwrapped = cb->getCallback();
                         unwrapped->setHandle(callbackHandle);
                         unwrapped->setContext(context);
-                        context->addCallback(callbackHandle);
+                        context->addCallback("Function passed in DukValue", callbackHandle);
                         return obj;
                     }
                     else

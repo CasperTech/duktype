@@ -6,16 +6,10 @@
 
 namespace Duktape
 {
-    DuktapeContext::DuktapeContext(bool async)
+    DuktapeContext::DuktapeContext()
         : _ctx(duk_create_heap_default())
-        , _async(async)
     {
 
-    }
-
-    bool DuktapeContext::isAsyncContext()
-    {
-        return _async;
     }
 
     duk_context* DuktapeContext::getContext()

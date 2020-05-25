@@ -28,8 +28,8 @@ namespace Duktype
             void setProperty(const std::string& objectHandle, const Nan::FunctionCallbackInfo<v8::Value> &info) override;
             void getProperty(const std::string& objectHandle, const Nan::FunctionCallbackInfo<v8::Value> &info) override;
             void deleteProperty(const std::string& objectHandle, const Nan::FunctionCallbackInfo<v8::Value> &info) override;
+            void getObject(const std::string& parentHandle, const Nan::FunctionCallbackInfo<v8::Value> &info) override;
             void createObjectAsync(const std::string& parentObjectHandle, const Nan::FunctionCallbackInfo<v8::Value> &info);
-            std::string getObject(const std::string& parentObjectHandle, const Nan::FunctionCallbackInfo<v8::Value> &info) override;
             void callMethod(const std::string& objectHandle, const std::string& methodName, const Nan::FunctionCallbackInfo<v8::Value>& info) override;
             void runGC(const Nan::FunctionCallbackInfo<v8::Value> &info) override;
             void derefObject(const std::string& handle) override;

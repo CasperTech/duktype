@@ -27,7 +27,6 @@ namespace Duktype
             static int handleDukCatch(duk_context* ctx);
 
             std::string promiseID;
-            std::shared_ptr<Context> _ctx;
             Nan::Persistent<v8::Promise> promise;
     };
 }

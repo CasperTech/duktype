@@ -11,7 +11,7 @@ namespace Duktype
     struct PromiseData
     {
         std::string promiseHandle;
-        std::shared_ptr<Context> context;
+        std::weak_ptr<Context> context;
     };
 
 

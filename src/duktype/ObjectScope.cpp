@@ -40,16 +40,6 @@ namespace Duktype
 
     std::string ObjectScope::getObject(const Nan::FunctionCallbackInfo<v8::Value> &info)
     {
-        if (info.Length() > 0 && info[0]->IsString())
-        {
-            std::string objNameStr = *Nan::Utf8String(info[0]);
-            std::string handle = _ctx->getObject(_handle, info);
-            return handle;
-        }
-        else
-        {
-            Nan::ThrowError("Invalid or wrong number of arguments");
-        }
         return {};
     }
 

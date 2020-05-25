@@ -38,7 +38,7 @@ namespace Duktape
             bool isUndefined();
             bool isCallable();
             bool isObject();
-            void resolved();
+            void resolved(bool resolved = true);
             void convertBufferToBufferObject(size_t length, int type);
 
             v8::Local<v8::Value> toV8(const std::shared_ptr<Duktype::Context>& context);

@@ -10,7 +10,7 @@ namespace Duktype
     {
         public:
             Callback();
-            ~Callback();
+            virtual ~Callback();
             void call(const Nan::FunctionCallbackInfo<v8::Value> &info);
             void setHandle(const std::string& handle);
             void setContext(const std::shared_ptr<Context>& context);

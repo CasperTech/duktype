@@ -24,7 +24,6 @@ add_nodejs_module(${PROJECT_NAME}
         src/callback.cpp
         src/asynccallback.h
         src/asynccallback.cpp
-        src/sole/sole.hpp
 
         src/duktape/DuktapeContext.h
         src/duktape/DuktapeContext.cpp
@@ -64,6 +63,11 @@ add_nodejs_module(${PROJECT_NAME}
         src/duktype/AsyncJobScheduler.cpp
         src/duktype/AsyncNodeScheduler.h
         src/duktype/AsyncNodeScheduler.cpp
+        src/duktype/ResourceManager.cpp
+        src/duktype/ResourceManager.h
+
+        src/uuid/uuid.h
+        src/uuid/uuid.cpp
 )
 
 target_link_libraries(${PROJECT_NAME} duktape)

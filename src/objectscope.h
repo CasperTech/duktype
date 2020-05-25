@@ -21,6 +21,8 @@ class ObjectScope: public Nan::ObjectWrap
     private:
         explicit ObjectScope();
 
+        ~ObjectScope();
+
         static void New(const Nan::FunctionCallbackInfo<v8::Value> &info);
 
         static void SetProperty(const Nan::FunctionCallbackInfo<v8::Value> &info);
